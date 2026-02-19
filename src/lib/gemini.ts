@@ -34,76 +34,34 @@ function getImageDimensions(aspectRatio: AspectRatio): { width: number; height: 
 }
 
 /**
- * Build brand assets instructions for the prompt
+ * Extract base64 data from a data URL
+ * Returns the raw base64 string WITHOUT the data:image/xxx;base64, prefix
  */
-function buildBrandAssetsInstructions(brandAssets: BrandAssets | undefined, productType: ProductType): string {
-  if (!brandAssets) {
-    return `
-VISUAL STYLE:
-- Create a professional, premium-looking advertisement
-- Generate appropriate ${productType === 'physical' ? 'product imagery' : productType === 'service' ? 'service representation' : 'digital product mockup'}
-- Use modern design aesthetics
-`;
+function extractBase64FromDataUrl(dataUrl: string): { data: string; mimeType: string } | null {
+  if (!dataUrl || !dataUrl.startsWith('data:')) {
+    console.log('[DEBUG] Invalid dataUrl - does not start with data:');
+    return null;
   }
-
-  const instructions: string[] = [];
   
-  // Logo instructions
-  if (brandAssets.logoUrl) {
-    instructions.push(`
-LOGO INTEGRATION:
-- Place the provided brand logo prominently in the design
-- Position logo in the top-left or top-center area
-- Ensure logo is clearly visible and not obscured
-- Maintain logo proportions and quality`);
+  const matches = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!matches) {
+    console.log('[DEBUG] Failed to parse dataUrl with regex');
+    return null;
   }
-
-  // Product image instructions
-  if (brandAssets.productImageUrl) {
-    const productInstructions = {
-      physical: `
-PRODUCT IMAGE:
-- The uploaded product photo should be the HERO of this ad
-- Feature the actual product prominently in the center/focus
-- Use professional lighting and shadows around the product
-- Make the product look premium and desirable`,
-      service: `
-SERVICE IMAGE:
-- Incorporate the uploaded service image naturally into the design
-- Use it to convey the quality and professionalism of the service
-- Add appropriate visual effects to enhance appeal`,
-      digital: `
-SCREENSHOT/UI:
-- Display the uploaded screenshot/UI on a modern device mockup
-- Show it on a laptop, phone, or tablet as appropriate
-- Add realistic reflections and shadows
-- Make it look professional and high-tech`
-    };
-    instructions.push(productInstructions[productType]);
-  }
-
-  // Color instructions
-  if (brandAssets.primaryColor || brandAssets.secondaryColor) {
-    instructions.push(`
-BRAND COLORS:
-- Primary brand color: ${brandAssets.primaryColor || '#3B82F6'}
-- Secondary brand color: ${brandAssets.secondaryColor || '#1E40AF'}
-- Use these colors for backgrounds, accents, and text highlights
-- Ensure color harmony throughout the design`);
-  }
-
-  if (instructions.length === 0) {
-    return `
-VISUAL STYLE:
-- Create a professional, premium-looking advertisement
-- Use modern design aesthetics`;
-  }
-
-  return instructions.join('\n');
+  
+  return {
+    mimeType: matches[1],
+    data: matches[2]
+  };
 }
 
 /**
- * Generate a single marketing image using Gemini 3 Pro Image
+ * Generate a single marketing image using Gemini
+ * Uses Nano Banana Pro (gemini-3-pro-image-preview) - Google's best model for:
+ * - Accurate text rendering
+ * - High-fidelity visuals (up to 4K)
+ * - Complex multi-turn editing
+ * - Following intricate instructions
  */
 async function generateSingleImage(
   prompt: DynamicPrompt,
@@ -116,35 +74,134 @@ async function generateSingleImage(
 ): Promise<{ imageData: string; prompt: string }> {
   const { width, height } = getImageDimensions(aspectRatio);
   
-  // Build brand assets instructions
-  const brandAssetsInstructions = buildBrandAssetsInstructions(brandAssets, productType);
+  // Check for uploaded images
+  const hasProductImage = brandAssets?.productImageUrl;
+  const hasLogo = brandAssets?.logoUrl;
   
-  // Enhance the prompt with additional quality and text rendering instructions
-  const enhancedPrompt = `
-Create a professional marketing advertisement image with the following specifications:
+  console.log('\n========== GEMINI GENERATION ==========');
+  console.log('Brand:', brandName);
+  console.log('Has Product Image:', !!hasProductImage);
+  console.log('Has Logo:', !!hasLogo);
+  console.log('Aspect Ratio:', aspectRatio);
+  
+  // Build parts array - IMAGES FIRST, then text prompt (order matters!)
+  const parts: any[] = [];
+  
+  // Add product image if provided (FIRST image)
+  if (hasProductImage) {
+    const productImageData = extractBase64FromDataUrl(brandAssets!.productImageUrl!);
+    if (productImageData) {
+      console.log('[DEBUG] Adding product image - mimeType:', productImageData.mimeType, 'length:', productImageData.data.length);
+      parts.push({
+        inlineData: {
+          mimeType: productImageData.mimeType,
+          data: productImageData.data
+        }
+      });
+    } else {
+      console.log('[ERROR] Failed to extract product image data');
+    }
+  }
+  
+  // Add logo if provided (SECOND image)
+  if (hasLogo) {
+    const logoData = extractBase64FromDataUrl(brandAssets!.logoUrl!);
+    if (logoData) {
+      console.log('[DEBUG] Adding logo - mimeType:', logoData.mimeType, 'length:', logoData.data.length);
+      parts.push({
+        inlineData: {
+          mimeType: logoData.mimeType,
+          data: logoData.data
+        }
+      });
+    } else {
+      console.log('[ERROR] Failed to extract logo data');
+    }
+  }
+  
+  // Build the prompt - SIMPLE FORMAT that works (like user's manual test)
+  // Include marketing idea as CONTEXT only, not as main instruction
+  let textPrompt: string;
+  
+  // Extract a short style hint from marketing idea (max 150 chars)
+  const styleContext = prompt.prompt ? prompt.prompt.substring(0, 150).trim() : '';
+  
+  if (hasProductImage && hasLogo) {
+    // BOTH product and logo provided
+    textPrompt = `Turn the subject in the FIRST uploaded image into a hyper-realistic cinematic product advertisement. Make it the hero focus with premium lighting, realistic textures, and a professional commercial layout.
 
-${prompt.prompt}
+The SECOND uploaded image is the brand logo - place it in the top-left corner exactly as shown.
 
-${brandAssetsInstructions}
+Theme: ${prompt.ideaTitle}
+${styleContext ? `Style context: ${styleContext}...` : ''}
 
-CRITICAL TEXT REQUIREMENTS:
-- Brand Name "${brandName}" must be prominently displayed and perfectly spelled
-${slogan ? `- Slogan "${slogan}" must be clearly visible and correctly spelled` : ''}
-${pricing ? `- Price "${pricing}" must be shown clearly with emphasis` : ''}
-- All text must be crisp, legible, and professionally integrated into the design
-- Text should have appropriate contrast against the background
-- Use modern, professional typography
+Include clear, perfectly readable marketing text exactly as follows:
+• Product name: ${brandName}
+${slogan ? `• Slogan: ${slogan}` : ''}
+${pricing ? `• Price: ${pricing}` : ''}
+• CTA: Buy Now
 
-TECHNICAL REQUIREMENTS:
-- Resolution: ${width}x${height} pixels (aspect ratio: ${aspectRatio})
-- Style: Professional marketing/advertising photography
-- Lighting: Studio-quality, appropriate for ${productType} marketing
-- Composition: Balanced, following rule of thirds
-- Color palette: ${brandAssets?.primaryColor ? `Use brand colors ${brandAssets.primaryColor} and ${brandAssets.secondaryColor}` : 'Vibrant yet professional'}
+CRITICAL: Keep the product and logo EXACTLY as uploaded. Only enhance the background and add text.
+Use shallow depth of field, HDR lighting, 4K ultra detail, and a high-end brand aesthetic.`;
 
-OUTPUT: A single, stunning, publish-ready marketing advertisement.
-`.trim();
+  } else if (hasProductImage) {
+    // Only product image provided
+    textPrompt = `Turn the subject in the uploaded image into a hyper-realistic cinematic product advertisement. Make it the hero focus with premium lighting, realistic textures, and a professional commercial layout.
 
+Theme: ${prompt.ideaTitle}
+${styleContext ? `Style context: ${styleContext}...` : ''}
+
+Include clear, perfectly readable marketing text exactly as follows:
+• Product name: ${brandName}
+${slogan ? `• Slogan: ${slogan}` : ''}
+${pricing ? `• Price: ${pricing}` : ''}
+• CTA: Buy Now
+
+CRITICAL: Keep the product EXACTLY as uploaded. Only enhance the background and add text.
+Use shallow depth of field, HDR lighting, 4K ultra detail, and a high-end brand aesthetic.`;
+
+  } else if (hasLogo) {
+    // Only logo provided
+    textPrompt = `Create a hyper-realistic cinematic product advertisement for ${brandName}. 
+
+The uploaded image is the brand logo - place it in the top-left corner exactly as shown.
+
+Theme: ${prompt.ideaTitle}
+${styleContext ? `Style context: ${styleContext}...` : ''}
+
+Include clear, perfectly readable marketing text exactly as follows:
+• Product name: ${brandName}
+${slogan ? `• Slogan: ${slogan}` : ''}
+${pricing ? `• Price: ${pricing}` : ''}
+• CTA: Buy Now
+
+CRITICAL: Keep the logo EXACTLY as uploaded.
+Use shallow depth of field, HDR lighting, 4K ultra detail, and a high-end brand aesthetic.`;
+
+  } else {
+    // No images provided - pure text-to-image
+    textPrompt = `Create a hyper-realistic cinematic product advertisement for ${brandName}.
+
+Theme: ${prompt.ideaTitle}
+${styleContext ? `Style context: ${styleContext}...` : ''}
+
+Include clear, perfectly readable marketing text exactly as follows:
+• Product name: ${brandName}
+${slogan ? `• Slogan: ${slogan}` : ''}
+${pricing ? `• Price: ${pricing}` : ''}
+• CTA: Buy Now
+
+Use shallow depth of field, HDR lighting, 4K ultra detail, and a high-end brand aesthetic.`;
+  }
+  
+  // Add text prompt to parts
+  parts.push({ text: textPrompt });
+  
+  console.log('[DEBUG] Total parts:', parts.length);
+  console.log('[DEBUG] Prompt preview:', textPrompt.substring(0, 150) + '...');
+  console.log('========================================\n');
+
+  // Use Nano Banana Pro - Google's highest quality image generation model
   const model = getGenAI().getGenerativeModel({ 
     model: 'gemini-3-pro-image-preview',
     generationConfig: {
@@ -155,7 +212,7 @@ OUTPUT: A single, stunning, publish-ready marketing advertisement.
   const result = await model.generateContent({
     contents: [{ 
       role: 'user', 
-      parts: [{ text: enhancedPrompt }] 
+      parts: parts
     }],
     generationConfig: {
       responseModalities: ['image', 'text'],
@@ -163,141 +220,25 @@ OUTPUT: A single, stunning, publish-ready marketing advertisement.
   });
 
   const response = result.response;
+  const responseParts = response.candidates?.[0]?.content?.parts;
   
-  // Extract image data from response
-  const parts = response.candidates?.[0]?.content?.parts;
-  if (!parts) {
-    throw new Error('No image generated');
+  if (!responseParts) {
+    throw new Error('No image generated - empty response from Gemini');
   }
 
-  const imagePart = parts.find((part: any) => part.inlineData?.mimeType?.startsWith('image/'));
+  const imagePart = responseParts.find((part: any) => part.inlineData?.mimeType?.startsWith('image/'));
   if (!imagePart || !('inlineData' in imagePart)) {
+    // Log what we got for debugging
+    console.log('[ERROR] No image in response. Parts received:', responseParts.map((p: any) => Object.keys(p)));
     throw new Error('No image data in response');
   }
 
+  console.log('[SUCCESS] Image generated successfully!');
+  
   return {
     imageData: (imagePart as any).inlineData.data,
-    prompt: enhancedPrompt
+    prompt: textPrompt
   };
-}
-
-// Import createServerSupabaseClient lazily to avoid build-time initialization
-async function getSupabaseClient() {
-  const { createServerSupabaseClient } = await import('./supabase');
-  return createServerSupabaseClient();
-}
-
-/**
- * Upload image to Supabase Storage
- */
-async function uploadToStorage(
-  imageData: string,
-  projectId: string,
-  imageId: string
-): Promise<{ url: string; path: string }> {
-  const supabase = await getSupabaseClient();
-  
-  // Convert base64 to buffer
-  const buffer = Buffer.from(imageData, 'base64');
-  
-  const storagePath = `${projectId}/${imageId}.png`;
-  
-  const { error: uploadError } = await supabase.storage
-    .from('generated-images')
-    .upload(storagePath, buffer, {
-      contentType: 'image/png',
-      upsert: true
-    });
-
-  if (uploadError) {
-    throw new Error(`Failed to upload image: ${uploadError.message}`);
-  }
-
-  const { data: urlData } = supabase.storage
-    .from('generated-images')
-    .getPublicUrl(storagePath);
-
-  return {
-    url: urlData.publicUrl,
-    path: storagePath
-  };
-}
-
-/**
- * Generate multiple ads in parallel
- */
-export async function generateAds(
-  prompts: DynamicPrompt[],
-  brandName: string,
-  slogan: string | undefined,
-  pricing: string | undefined,
-  productType: ProductType,
-  projectId: string
-): Promise<GeneratedAd[]> {
-  // Generate all images in parallel
-  const generationPromises = prompts.map(async (prompt) => {
-    const imageId = `img_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-    
-    try {
-      // Generate image
-      const { imageData, prompt: usedPrompt } = await generateSingleImage(
-        prompt,
-        brandName,
-        slogan,
-        pricing,
-        productType
-      );
-
-      // Upload to storage
-      const { url, path } = await uploadToStorage(imageData, projectId, imageId);
-
-      // Save to database
-      const supabase = await getSupabaseClient();
-      
-      // First create/get campaign
-      const { data: campaign, error: campaignError } = await supabase
-        .from('campaigns')
-        .insert({
-          project_id: projectId,
-          idea_title: prompt.ideaTitle,
-          idea_description: prompt.prompt,
-          dynamic_prompt: usedPrompt,
-          status: 'completed'
-        })
-        .select()
-        .single();
-
-      if (campaignError) {
-        console.error('Campaign creation error:', campaignError);
-      }
-
-      // Save image record
-      if (campaign) {
-        await supabase
-          .from('generated_images')
-          .insert({
-            campaign_id: campaign.id,
-            image_url: url,
-            storage_path: path,
-            resolution: '2048x2048'
-          });
-      }
-
-      return {
-        id: imageId,
-        ideaId: prompt.ideaId,
-        ideaTitle: prompt.ideaTitle,
-        imageUrl: url,
-        prompt: usedPrompt
-      };
-    } catch (error) {
-      console.error(`Error generating image for ${prompt.ideaTitle}:`, error);
-      throw error;
-    }
-  });
-
-  const results = await Promise.all(generationPromises);
-  return results;
 }
 
 /**
@@ -319,12 +260,18 @@ export async function generateAdsWithoutStorage(
     return generateMockAds(prompts, aspectRatio, brandAssets);
   }
 
-  // Generate all images in parallel
-  const generationPromises = prompts.map(async (prompt) => {
+  console.log(`\n🎨 Generating ${prompts.length} ads with Gemini 3 Pro Image...\n`);
+
+  // Generate images sequentially to avoid rate limits
+  const results: GeneratedAd[] = [];
+  
+  for (let i = 0; i < prompts.length; i++) {
+    const prompt = prompts[i];
     const imageId = `img_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     
+    console.log(`\n📸 Generating ad ${i + 1}/${prompts.length}: "${prompt.ideaTitle}"`);
+    
     try {
-      // Generate image
       const { imageData, prompt: usedPrompt } = await generateSingleImage(
         prompt,
         brandName,
@@ -335,23 +282,31 @@ export async function generateAdsWithoutStorage(
         brandAssets
       );
 
-      // Return as base64 data URL (no storage needed)
+      // Return as base64 data URL
       const imageUrl = `data:image/png;base64,${imageData}`;
 
-      return {
+      results.push({
         id: imageId,
         ideaId: prompt.ideaId,
         ideaTitle: prompt.ideaTitle,
         imageUrl,
         prompt: usedPrompt
-      };
+      });
+      
+      console.log(`✅ Ad ${i + 1} generated successfully!`);
+      
+      // Small delay between generations to avoid rate limits
+      if (i < prompts.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
     } catch (error) {
-      console.error(`Error generating image for ${prompt.ideaTitle}:`, error);
+      console.error(`❌ Error generating ad ${i + 1}:`, error);
       throw error;
     }
-  });
+  }
 
-  const results = await Promise.all(generationPromises);
+  console.log(`\n🎉 All ${results.length} ads generated successfully!\n`);
   return results;
 }
 
@@ -361,7 +316,7 @@ export async function generateAdsWithoutStorage(
 function generateMockAds(prompts: DynamicPrompt[], aspectRatio: AspectRatio = '1:1', brandAssets?: BrandAssets): GeneratedAd[] {
   const { width, height } = getImageDimensions(aspectRatio);
   
-  // Use brand colors if available, otherwise use defaults
+  // Use brand colors if available
   const primaryColor = brandAssets?.primaryColor?.replace('#', '') || '6366f1';
   const secondaryColor = brandAssets?.secondaryColor?.replace('#', '') || '8b5cf6';
   const mockColors = [primaryColor, secondaryColor, 'ec4899', 'f43f5e', '14b8a6', 'f59e0b'];
@@ -370,7 +325,6 @@ function generateMockAds(prompts: DynamicPrompt[], aspectRatio: AspectRatio = '1
     const color = mockColors[index % mockColors.length];
     const imageId = `mock_${Date.now()}_${index}`;
     
-    // Use placeholder image service with correct dimensions
     const imageUrl = `https://placehold.co/${width}x${height}/${color}/white?text=${encodeURIComponent(prompt.ideaTitle.slice(0, 20))}`;
     
     return {
