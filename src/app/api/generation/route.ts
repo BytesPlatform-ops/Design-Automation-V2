@@ -32,7 +32,9 @@ export async function POST(request: NextRequest) {
       body.pricing,
       body.productType,
       body.aspectRatio || '1:1',
-      body.brandAssets
+      body.brandAssets,
+      body.industry,
+      body.niche
     );
 
     return NextResponse.json({ 

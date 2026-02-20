@@ -135,6 +135,8 @@ export default function CreatePage() {
           slogan: businessDetails.brandSlogan,
           pricing: businessDetails.pricingInfo,
           productType: businessDetails.productType,
+          industry: businessDetails.industry,
+          niche: businessDetails.niche,
           aspectRatio: businessDetails.aspectRatio || '1:1',
           brandAssets: businessDetails.brandAssets,
         }),
@@ -283,12 +285,13 @@ export default function CreatePage() {
           <GeneratingStep selectedCount={selectedIdeas.length} />
         )}
 
-        {currentStep === 6 && (
+        {currentStep === 6 && businessDetails && (
           <ResultsStep 
             ads={generatedAds}
             onStartOver={handleStartOver}
-            aspectRatio={businessDetails?.aspectRatio}
+            aspectRatio={businessDetails.aspectRatio}
             onRegenerate={handleRegenerateAd}
+            businessDetails={businessDetails}
           />
         )}
       </div>

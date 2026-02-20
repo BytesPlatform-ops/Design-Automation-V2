@@ -81,54 +81,92 @@ export async function generateMarketingIdeas(
     return generateMockIdeas(details);
   }
 
-  const systemPrompt = `You are an expert ad creative director specializing in product showcase advertisements.
-Your job is to create DIRECT, PRODUCT-FOCUSED ad concepts - not abstract marketing campaigns.
-You create ads that SHOWCASE the actual product/service with clear messaging like:
-- "Introducing [Product Name]" 
-- "Now Available - [Price]"
-- "[Product] - [Key Benefit]"
-- "Order Today - [Offer]"
+  const systemPrompt = `You are an elite creative director at a world-class advertising agency. You've won Cannes Lions, D&AD Black Pencils, and One Show Gold across EVERY industry — food, fashion, tech, fitness, beauty, automotive, real estate, finance, gaming, and more.
 
-Think like you're creating a single Instagram/Facebook ad image, NOT a multi-channel campaign.
+Your specialty: Creating SCROLL-STOPPING single-image ads for social media that look like they cost $100,000 to produce.
+
+CRITICAL RULES:
+1. Each idea must be a SINGLE IMAGE AD — not a campaign, not a video, not a carousel
+2. Each idea must feel UNIQUE and DIFFERENT from the others — vary the mood, angle, scene, and approach
+3. The visualConcept is the MOST IMPORTANT field — it directly drives the AI image generator
+4. Think about what makes the TOP ads in THIS SPECIFIC industry incredible, and create concepts at that level
+5. NO generic templates — every concept should feel custom-crafted for this exact business
+
+For visualConcept, think like a photographer/art director and specify:
+- EXACT scene/environment (not "clean background" but "brushed concrete surface with morning light streaming from the left")
+- Lighting style (golden hour, studio rim light, neon glow, natural window light, dramatic chiaroscuro)
+- Composition (hero product center-frame, rule of thirds, overhead flat-lay, 45-degree angle)
+- Mood/emotion (luxury calm, energetic urgency, cozy warmth, sleek minimalism, bold maximalism)
+- Material/texture references (marble, brushed metal, natural wood grain, velvet, water droplets)
+- Color mood (warm earth tones, cool minimalist palette, vibrant pop colors, moody dark tones)
+
+The visualConcept should read like a detailed shot description a photographer would use on set.
+
 Always respond with valid JSON.`;
 
-  const userPrompt = `Create 5 PRODUCT-FOCUSED AD CONCEPTS for this business:
+  const userPrompt = `Create 5 UNIQUE, STUNNING ad image concepts for this ${details.industry} business:
 
-Business Name: ${details.businessName}
+=== BRAND PROFILE ===
+Business Name: "${details.businessName}"
 Industry: ${details.industry}
 Product/Service: ${details.niche}
-Product Type: ${details.productType}
-${details.brandSlogan ? `Brand Slogan: ${details.brandSlogan}` : ''}
-${details.pricingInfo ? `Pricing: ${details.pricingInfo}` : ''}
+Product Type: ${details.productType} (${details.productType === 'physical' ? 'tangible product you can hold' : details.productType === 'digital' ? 'software/app/digital tool' : 'service business'})
+${details.brandSlogan ? `Brand Slogan: "${details.brandSlogan}"` : 'No slogan provided'}
+${details.pricingInfo ? `Pricing: "${details.pricingInfo}"` : 'No pricing provided'}
 
-IMPORTANT: These are SINGLE AD IMAGE concepts, not campaign strategies!
+=== YOUR TASK ===
+Create 5 distinctly different ad concepts. Each must:
+1. Be a SINGLE IMAGE ad (Instagram/Facebook feed format)
+2. Feature "${details.businessName}" brand name prominently
+${details.pricingInfo ? `3. Display the price "${details.pricingInfo}" in an eye-catching way` : '3. Include a compelling call-to-action'}
+${details.brandSlogan ? `4. Incorporate the slogan "${details.brandSlogan}"` : ''}
 
-Each ad should be like a real Instagram/Facebook product ad:
-- SHOW the actual product/service
-- Include the brand name "${details.businessName}" prominently
-- Have a clear headline (e.g., "Introducing...", "Now Available", "Try Today")
-${details.pricingInfo ? `- Display the price "${details.pricingInfo}"` : '- Include a call-to-action'}
-${details.brandSlogan ? `- Use the slogan "${details.brandSlogan}"` : ''}
+=== MAKE EACH CONCEPT UNIQUE ===
+Vary across these dimensions — each ad should feel completely different:
 
-For each ad concept, provide:
-1. A short title describing the ad type (3-5 words)
-2. What this specific ad shows and says (2-3 sentences)
-3. 2-3 headline options for the ad
-4. 3-4 relevant hashtags
-5. DETAILED visual description: exactly what the ad image contains, where text is placed, the product positioning
+AD 1 - HERO PRODUCT SHOWCASE: The product/service as the absolute star. Premium studio-quality presentation. Think: Apple product launch level.
 
-Think: What would a professional social media ad for "${details.niche}" look like?
+AD 2 - LIFESTYLE/ASPIRATIONAL: Show the life AFTER using this product/service. The dream outcome. The emotional payoff. Think: Nike "Just Do It" energy.
+
+AD 3 - BOLD TYPOGRAPHIC: Typography-led design where the words are the visual. Striking, artistic text treatment with the product as secondary element. Think: fashion magazine cover meets advertising.
+
+AD 4 - SENSORY/ATMOSPHERIC: Create MOOD and FEELING. ${details.productType === 'physical' ? 'Textures, close-ups, macro details that make you want to reach into the screen' : details.productType === 'service' ? 'The transformation moment — the before/after feeling' : 'The futuristic, innovative energy of using cutting-edge technology'}. Think: perfume ad or luxury automotive commercial.
+
+AD 5 - DISRUPTIVE/UNEXPECTED: Break the rules. Unexpected angle, surprising composition, pattern-interrupt that stops the scroll. Think: the ad that makes someone screenshot and share.
+
+=== VISUAL CONCEPT QUALITY STANDARD ===
+Your visualConcept must be SPECIFIC enough to direct a photographer. 
+
+BAD (too generic): "Product on clean background with dramatic lighting and bold text"
+GOOD (specific & cinematic): "Hero product placed on a weathered wooden table with natural grain, backlit by soft window light creating translucent edges. Background: warm blurred bokeh of cafe ambient light. Brand name in bold serif typography overlaid top-left with semi-transparent white backdrop. Price tag as a vintage-style leather label hanging from string. Shallow depth of field, everything feels warm, artisanal, and accessible."
+
+INCREDIBLY IMPORTANT - NO REPETITION ACROSS IDEAS:
+- Each visualConcept must use COMPLETELY DIFFERENT surfaces/materials
+- FORBIDDEN to repeat: marble, concrete, specific material choices, lighting direction, or composition angles
+- AD 1 uses marble? → AD 2 cannot
+- AD 2 uses window light? → AD 3 must use different light source
+- AD 3 uses overhead angle? → AD 4 must use different angle
+- Use varied environments: studio vs outdoor vs lifestyle vs abstract vs dark vs bright
+
+Each concept should be visually DISTINCT at first glance.
+
+Include in every visualConcept:
+- Exact scene description (surfaces, materials, environment) - DIFFERENT FOR EACH
+- Lighting direction and quality - VARIED ACROSS ALL 5
+- Text placement and style suggestion
+- Color palette mood - CONTRAST BETWEEN IDEAS
+- Emotional tone - NO DUPLICATES
 
 Respond with JSON:
 {
   "ideas": [
     {
       "id": "idea_1",
-      "title": "Ad Type Title",
-      "description": "What this ad shows and communicates",
-      "hooks": ["Headline Option 1", "Headline Option 2"],
-      "hashtags": ["#hashtag1", "#hashtag2"],
-      "visualConcept": "Detailed description of the ad image - product placement, text placement, colors, style"
+      "title": "Short Evocative Title (3-6 words)",
+      "description": "What this ad communicates and why it works (2-3 sentences)",
+      "hooks": ["Headline Option 1", "Headline Option 2", "Headline Option 3"],
+      "hashtags": ["#hashtag1", "#hashtag2", "#hashtag3", "#hashtag4"],
+      "visualConcept": "EXTREMELY detailed shot description — 4-6 sentences covering scene, lighting, composition, materials, text placement, mood, and color palette. This directly drives the image generator."
     }
   ]
 }`;
@@ -139,7 +177,7 @@ Respond with JSON:
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ],
-    temperature: 0.8,
+    temperature: 0.95,
     response_format: { type: 'json_object' }
   });
 
@@ -184,59 +222,107 @@ export async function expandToPrompts(
     return generateMockPrompts(selectedIdeas, details);
   }
 
-  const systemPrompt = `You are an expert at crafting prompts for AI image generation.
-Your specialty is creating prompts that produce stunning, professional marketing visuals.
-You understand how to describe lighting, composition, style, and mood for best results.
-The generated images must include text elements (brand name, slogan, pricing) naturally.
+  const systemPrompt = `You are a master prompt engineer AND elite advertising creative director. You translate marketing ad concepts into the PERFECT prompts for an AI image generator (Google Gemini).
+
+YOUR UNDERSTANDING OF AI IMAGE GENERATION:
+- AI responds best to SPECIFIC, CONCRETE descriptions — not vague instructions
+- Scene description quality DIRECTLY determines image quality
+- You must describe the EXACT VISUAL the AI should create, like directing a photographer
+- Include: materials, textures, lighting direction, color palette, composition, mood
+- The more cinematic and specific your scene description, the better the output
+
+PROMPT STRUCTURE THAT WORKS BEST:
+1. Open with the primary scene/environment description
+2. Describe the hero element (product/brand visualization) placement and treatment
+3. Specify lighting quality and direction
+4. Define the color mood and material textures
+5. Describe the overall emotional tone and visual energy
+6. Note composition and camera perspective
+
+IMPORTANT PRINCIPLES:
+- Do NOT specify exact font names or CSS-style properties — describe the FEELING of the typography
+- Do NOT micromanage colors with hex codes — describe the color MOOD (warm earth tones, icy cool blues, etc.)
+- DO describe specific materials (marble, brushed aluminum, liquid gold, matte ceramic)
+- DO describe specific lighting (rim-lit from behind, diffused overhead softbox, dramatic side-light creating long shadows)
+- DO describe the scene like a movie director would describe a shot to their cinematographer
+- The prompt will be paired with the brand's product images/logo if they uploaded them
+
+CRITICAL - AVOID REPETITION:
+- Each prompt should feel VISUALLY DISTINCT from the others
+- Do not repeat similar materials, lighting, angles, or compositions across prompts
+- Vary between studio/outdoor/lifestyle/abstract environments
+- Mix between warm and cool color palettes
+- Alternate between different lighting directions (side-lit, backlit, top-lit, practical light)
+- Use different compositional approaches (centered, rule-of-thirds, diagonal, overhead)
+- Each should have its own unique emotional energy
+
+The 3 prompts you create should look like totally different photoshoots, not variations on a theme.
+
 Always respond with valid JSON.`;
 
-  const productTypeGuidelines = {
-    physical: `For physical products:
-- The product should be the hero of the image
-- Place it in a stunning, contextual environment
-- Use professional product photography lighting
-- Make the product look premium and desirable`,
+  const productTypeGuidelines: Record<string, string> = {
+    physical: `For physical products — think like a product photographer:
+- Describe surfaces the product sits on (marble slab, dark slate, rustic wood, wet glass)
+- Specify how light interacts with the product (catches the edge, creates reflections, casts soft shadows)
+- Include environmental props that complement without competing (ingredient elements, texture accents, atmospheric particles)
+- Make the product the undeniable hero — everything else serves it
+- Describe the "tactile quality" — the viewer should almost feel they can touch the product`,
     
-    service: `For service businesses:
-- Focus on the emotional outcome/transformation
-- Use lifestyle imagery showing happy customers
-- Convey the feeling of the service benefit
-- Include aspirational elements`,
+    service: `For service businesses — think like a lifestyle photographer:
+- Describe the TRANSFORMATION or OUTCOME the service delivers
+- Create scenes showing the emotional payoff (relief, joy, confidence, success)
+- Use environmental storytelling — the space, the light, the mood tells the story
+- Include human elements when appropriate (hands, silhouettes, implied presence)
+- The viewer should FEEL what it's like to have this service in their life`,
     
-    digital: `For digital products:
-- Use mockup marketing (product on screens)
-- Show the product on modern devices (laptop, tablet, phone)
-- Include UI elements if relevant
-- Create a tech-forward, modern aesthetic`
+    digital: `For digital products — think like a tech brand photographer:
+- Describe device presentation (floating devices, minimal desk setup, isometric view)
+- Specify screen content mood (abstract UI elements, data visualization, clean interfaces)
+- Create a modern, forward-thinking environment (minimal workspace, futuristic elements)
+- Use technology-authentic lighting (screen glow, ambient blue tones, clean white light)
+- The viewer should feel "this will upgrade my life"`
   };
 
-  const userPrompt = `Create detailed image generation prompts for these selected marketing ideas:
+  const userPrompt = `Transform these selected ad concepts into PRODUCTION-READY image generation prompts.
 
-Business Details:
-- Name: ${details.businessName}
-- Industry: ${details.industry}
-- Niche: ${details.niche}
-- Product Type: ${details.productType}
-${details.brandSlogan ? `- Slogan: "${details.brandSlogan}"` : ''}
-${details.pricingInfo ? `- Pricing: ${details.pricingInfo}` : ''}
+=== BRAND CONTEXT ===
+Brand: "${details.businessName}"
+Industry: ${details.industry}
+Niche: ${details.niche}
+Product Type: ${details.productType}
+${details.brandSlogan ? `Slogan: "${details.brandSlogan}"` : 'No slogan'}
+${details.pricingInfo ? `Pricing: "${details.pricingInfo}"` : 'No pricing'}
 
 ${productTypeGuidelines[details.productType]}
 
-Selected Campaign Ideas:
+=== SELECTED AD CONCEPTS ===
 ${selectedIdeas.map((idea, i) => `
-${i + 1}. ${idea.title}
+${i + 1}. "${idea.title}"
    Concept: ${idea.description}
-   Visual: ${idea.visualConcept}
+   Visual Direction: ${idea.visualConcept}
 `).join('\n')}
 
-For each idea, create a highly detailed prompt that:
-1. Describes the exact scene, composition, and layout
-2. Specifies lighting, colors, and mood
-3. Includes where and how to place the text "${details.businessName}"
-4. ${details.brandSlogan ? `Includes the slogan "${details.brandSlogan}"` : 'Creates an impactful headline'}
-5. ${details.pricingInfo ? `Incorporates the pricing "${details.pricingInfo}"` : 'Includes a call-to-action'}
-6. Ensures 2K resolution quality (2048x2048)
-7. Makes text highly legible and professionally integrated
+=== YOUR TASK ===
+
+For each concept, write a CINEMATIC prompt that reads like a shot description from a world-class photographer. The prompt should paint such a vivid picture that anyone reading it can SEE the exact image.
+
+QUALITY STANDARD — compare these:
+
+❌ WEAK PROMPT: "Create a professional ad for a shoe brand. Product centered, dramatic lighting, bold text, premium feel."
+
+✅ STRONG PROMPT: "A single pristine white running shoe floating at a slight angle against a deep matte black background, lit from below with a cool blue uplight that catches the mesh texture and creates an ethereal glow around the sole. Tiny particles of light drift upward like sparks. The environment feels like a void of pure performance energy. The brand name should feel carved from light itself — clean, sharp, powerful. A subtle gradient from black to midnight blue gives depth. The composition is minimal but the impact is massive — this shoe is the future of running. The mood is electric, confident, and unstoppable."
+
+YOUR PROMPT MUST INCLUDE:
+1. **Scene/Environment**: Exact surfaces, backgrounds, props, atmosphere
+2. **Lighting**: Direction, quality, color temperature, shadows
+3. **Product/Hero Treatment**: How the main subject is presented and enhanced
+4. **Color Palette Mood**: Warm/cool, specific tones, gradients, contrasts
+5. **Composition & Camera Feel**: Angle, depth of field, focal point, spacing
+6. **Emotional Energy**: What the viewer FEELS when they see this image
+7. **Typography Direction**: NOT specific fonts — but the FEELING of the text (bold and industrial? elegant and thin? playful and rounded?)
+8. **Text Content**: Brand name "${details.businessName}"${details.brandSlogan ? `, slogan "${details.brandSlogan}"` : ''}${details.pricingInfo ? `, price "${details.pricingInfo}"` : ''} — describe HOW they integrate into the scene
+
+Each prompt should be 150-250 words of pure visual direction.
 
 Respond with JSON:
 {
@@ -244,7 +330,7 @@ Respond with JSON:
     {
       "ideaId": "idea_1",
       "ideaTitle": "Campaign Title",
-      "prompt": "The complete, detailed prompt for image generation..."
+      "prompt": "A cinematic, detailed visual direction prompt..."
     }
   ]
 }`;
@@ -255,7 +341,7 @@ Respond with JSON:
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ],
-    temperature: 0.7,
+    temperature: 0.85,
     response_format: { type: 'json_object' }
   });
 

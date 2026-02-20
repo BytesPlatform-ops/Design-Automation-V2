@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { GeneratedAd, AspectRatio, DynamicPrompt, ProductType } from '@/types';
+import { GeneratedAd, AspectRatio, DynamicPrompt, ProductType, BusinessDetails } from '@/types';
+import { AdEditPanel } from '@/components/wizard/ad-edit-panel';
 import { 
   Download, 
   RefreshCw, 
@@ -25,6 +26,7 @@ interface ResultsStepProps {
   onStartOver: () => void;
   aspectRatio?: AspectRatio;
   onRegenerate?: (ad: GeneratedAd) => Promise<GeneratedAd | null>;
+  businessDetails?: BusinessDetails; // For edit context
 }
 
 // Get aspect ratio CSS class
@@ -57,13 +59,14 @@ function getGridClass(aspectRatio?: AspectRatio): string {
   }
 }
 
-export function ResultsStep({ ads: initialAds, onStartOver, aspectRatio = '1:1', onRegenerate }: ResultsStepProps) {
+export function ResultsStep({ ads: initialAds, onStartOver, aspectRatio = '1:1', onRegenerate, businessDetails }: ResultsStepProps) {
   const [ads, setAds] = useState<GeneratedAd[]>(initialAds);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [previewAd, setPreviewAd] = useState<GeneratedAd | null>(null);
   const [showPromptId, setShowPromptId] = useState<string | null>(null);
   const [downloadFormat, setDownloadFormat] = useState<'png' | 'jpg'>('png');
+  const [editingAdId, setEditingAdId] = useState<string | null>(null);
 
   const handleDownload = async (ad: GeneratedAd, format: 'png' | 'jpg' = 'png') => {
     setDownloadingId(ad.id);
@@ -153,6 +156,15 @@ export function ResultsStep({ ads: initialAds, onStartOver, aspectRatio = '1:1',
     } finally {
       setRegeneratingId(null);
     }
+  };
+
+  const handleEditComplete = (adId: string, editedImageUrl: string) => {
+    setAds(prev => prev.map(a => 
+      a.id === adId 
+        ? { ...a, imageUrl: editedImageUrl }
+        : a
+    ));
+    setEditingAdId(null);
   };
 
   const aspectRatioClass = getAspectRatioClass(aspectRatio);
@@ -361,6 +373,36 @@ export function ResultsStep({ ads: initialAds, onStartOver, aspectRatio = '1:1',
                   </a>
                 </Button>
               </div>
+
+              {/* Edit Panel */}
+              {editingAdId === ad.id && businessDetails && (
+                <AdEditPanel
+                  ad={ad}
+                  brandName={businessDetails.businessName}
+                  ideaTitle={ad.ideaTitle}
+                  ideaDescription={ad.prompt}
+                  slogan={businessDetails.brandSlogan}
+                  pricing={businessDetails.pricingInfo}
+                  productType={businessDetails.productType}
+                  industry={businessDetails.industry}
+                  niche={businessDetails.niche}
+                  aspectRatio={businessDetails.aspectRatio}
+                  brandAssets={businessDetails.brandAssets}
+                  onEditComplete={(editedImageUrl) => handleEditComplete(ad.id, editedImageUrl)}
+                  isLoading={false}
+                />
+              )}
+
+              {/* Toggle Edit Button */}
+              <Button
+                variant="secondary"
+                size="sm"
+                className="w-full"
+                onClick={() => setEditingAdId(editingAdId === ad.id ? null : ad.id)}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                {editingAdId === ad.id ? 'Close Editor' : 'Edit with AI'}
+              </Button>
             </div>
           </div>
         ))}

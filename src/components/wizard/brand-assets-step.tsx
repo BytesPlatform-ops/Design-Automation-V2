@@ -56,8 +56,9 @@ const PRESET_COLORS = [
 export function BrandAssetsStep({ productType, businessName, onSubmit, onBack, onSkip }: BrandAssetsStepProps) {
   const [logoUrl, setLogoUrl] = useState<string>('');
   const [productImageUrl, setProductImageUrl] = useState<string>('');
-  const [primaryColor, setPrimaryColor] = useState<string>('#3B82F6');
-  const [secondaryColor, setSecondaryColor] = useState<string>('#1E40AF');
+  const [primaryColor, setPrimaryColor] = useState<string>('');
+  const [secondaryColor, setSecondaryColor] = useState<string>('');
+  const [colorMode, setColorMode] = useState<'ai' | 'custom'>('ai');
   
   const logoInputRef = useRef<HTMLInputElement>(null);
   const productInputRef = useRef<HTMLInputElement>(null);
@@ -96,8 +97,9 @@ export function BrandAssetsStep({ productType, businessName, onSubmit, onBack, o
     
     if (logoUrl) assets.logoUrl = logoUrl;
     if (productImageUrl) assets.productImageUrl = productImageUrl;
-    if (primaryColor) assets.primaryColor = primaryColor;
-    if (secondaryColor) assets.secondaryColor = secondaryColor;
+    // Only include colors if user explicitly chose custom mode AND set colors
+    if (colorMode === 'custom' && primaryColor) assets.primaryColor = primaryColor;
+    if (colorMode === 'custom' && secondaryColor) assets.secondaryColor = secondaryColor;
     
     onSubmit(assets);
   };
@@ -227,78 +229,121 @@ export function BrandAssetsStep({ productType, businessName, onSubmit, onBack, o
 
       {/* Brand Colors */}
       <div className="space-y-4">
-        <Label className="text-base font-medium">Brand Colors (Optional)</Label>
+        <Label className="text-base font-medium">Brand Colors</Label>
         
-        {/* Preset Colors */}
-        <div className="flex flex-wrap gap-2">
-          {PRESET_COLORS.map((preset) => (
-            <button
-              key={preset.name}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition-all ${
-                primaryColor === preset.primary
-                  ? 'border-primary bg-primary/10 font-medium'
-                  : 'border-border hover:border-primary/50'
-              }`}
-              onClick={() => selectPresetColors(preset)}
-            >
+        {/* AI vs Custom Toggle */}
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all text-sm ${
+              colorMode === 'ai'
+                ? 'border-primary bg-primary/5 font-medium'
+                : 'border-border hover:border-primary/50'
+            }`}
+            onClick={() => setColorMode('ai')}
+          >
+            <Sparkles className="h-4 w-4 text-primary" />
+            Let AI Decide
+            <span className="text-xs text-muted-foreground">(Recommended)</span>
+          </button>
+          <button
+            className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all text-sm ${
+              colorMode === 'custom'
+                ? 'border-primary bg-primary/5 font-medium'
+                : 'border-border hover:border-primary/50'
+            }`}
+            onClick={() => {
+              setColorMode('custom');
+              if (!primaryColor) setPrimaryColor('#3B82F6');
+              if (!secondaryColor) setSecondaryColor('#1E40AF');
+            }}
+          >
+            <Palette className="h-4 w-4" />
+            Custom Colors
+          </button>
+        </div>
+
+        {colorMode === 'ai' && (
+          <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900 rounded-lg p-3 text-sm text-green-800 dark:text-green-200">
+            ✨ AI will analyze your brand, industry, and uploaded images to choose the perfect color palette automatically.
+          </div>
+        )}
+
+        {colorMode === 'custom' && (
+          <>
+            {/* Preset Colors */}
+            <div className="flex flex-wrap gap-2">
+              {PRESET_COLORS.map((preset) => (
+                <button
+                  key={preset.name}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition-all ${
+                    primaryColor === preset.primary
+                      ? 'border-primary bg-primary/10 font-medium'
+                      : 'border-border hover:border-primary/50'
+                  }`}
+                  onClick={() => selectPresetColors(preset)}
+                >
+                  <div 
+                    className="w-4 h-4 rounded-full border border-white/20"
+                    style={{ background: `linear-gradient(135deg, ${preset.primary}, ${preset.secondary})` }}
+                  />
+                  {preset.name}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom Color Inputs */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="primaryColor" className="text-sm">Primary Color</Label>
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    value={primaryColor || '#3B82F6'}
+                    onChange={(e) => setPrimaryColor(e.target.value)}
+                    className="w-10 h-10 rounded border cursor-pointer"
+                  />
+                  <Input
+                    id="primaryColor"
+                    value={primaryColor}
+                    onChange={(e) => setPrimaryColor(e.target.value)}
+                    placeholder="#3B82F6"
+                    className="font-mono"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="secondaryColor" className="text-sm">Secondary Color</Label>
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    value={secondaryColor || '#1E40AF'}
+                    onChange={(e) => setSecondaryColor(e.target.value)}
+                    className="w-10 h-10 rounded border cursor-pointer"
+                  />
+                  <Input
+                    id="secondaryColor"
+                    value={secondaryColor}
+                    onChange={(e) => setSecondaryColor(e.target.value)}
+                    placeholder="#1E40AF"
+                    className="font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Color Preview */}
+            {primaryColor && secondaryColor && (
               <div 
-                className="w-4 h-4 rounded-full border border-white/20"
-                style={{ background: `linear-gradient(135deg, ${preset.primary}, ${preset.secondary})` }}
-              />
-              {preset.name}
-            </button>
-          ))}
-        </div>
-
-        {/* Custom Color Inputs */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="primaryColor" className="text-sm">Primary Color</Label>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={primaryColor}
-                onChange={(e) => setPrimaryColor(e.target.value)}
-                className="w-10 h-10 rounded border cursor-pointer"
-              />
-              <Input
-                id="primaryColor"
-                value={primaryColor}
-                onChange={(e) => setPrimaryColor(e.target.value)}
-                placeholder="#3B82F6"
-                className="font-mono"
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="secondaryColor" className="text-sm">Secondary Color</Label>
-            <div className="flex gap-2">
-              <input
-                type="color"
-                value={secondaryColor}
-                onChange={(e) => setSecondaryColor(e.target.value)}
-                className="w-10 h-10 rounded border cursor-pointer"
-              />
-              <Input
-                id="secondaryColor"
-                value={secondaryColor}
-                onChange={(e) => setSecondaryColor(e.target.value)}
-                placeholder="#1E40AF"
-                className="font-mono"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Color Preview */}
-        <div 
-          className="h-16 rounded-lg flex items-center justify-center text-white font-semibold text-lg"
-          style={{ 
-            background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})` 
-          }}
-        >
-          {businessName}
-        </div>
+                className="h-16 rounded-lg flex items-center justify-center text-white font-semibold text-lg"
+                style={{ 
+                  background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})` 
+                }}
+              >
+                {businessName}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* No Assets Warning */}

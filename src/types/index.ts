@@ -109,6 +109,8 @@ export interface CreateAdsRequest {
   slogan?: string;
   pricing?: string;
   productType: ProductType;
+  industry?: string;
+  niche?: string;
   aspectRatio?: AspectRatio;
   brandAssets?: BrandAssets;
 }
