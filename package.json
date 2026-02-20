@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "setup:db": "node setup-db.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -18,6 +19,7 @@
     "next": "16.1.6",
     "next-themes": "^0.4.6",
     "openai": "^6.21.0",
+    "postgres": "^3.4.8",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
