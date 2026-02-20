@@ -126,72 +126,189 @@ async function generateSingleImage(
   // Extract a short style hint from marketing idea (max 150 chars)
   const styleContext = prompt.prompt ? prompt.prompt.substring(0, 150).trim() : '';
   
+  // VARIETY: Random CTA button styles for each generation
+  const ctaStyles = [
+    'Neon glow effect, electric blue to purple gradient, rounded pill shape, glowing edges',
+    'Metallic gold 3D button, embossed text, luxury feel, subtle shine',
+    'Bold red with white text, sharp corners, modern flat design, drop shadow',
+    'Gradient sunset (orange to pink), soft rounded corners, glossy glass effect',
+    'Deep emerald green, gold text, elegant serif font, premium look',
+    'Electric orange, pulsing glow effect, futuristic style, hover-like 3D lift',
+    'Royal purple to magenta gradient, chrome text, sleek modern design',
+    'Crisp white button with bold black text, minimalist, Apple-style clean',
+  ];
+  
+  // VARIETY: Random price badge styles for each generation
+  const priceStyles = [
+    'Explosive starburst shape, bright yellow with red outline, comic-book style pop',
+    'Elegant ribbon banner, gold with black text, premium feel',
+    'Modern circular badge, gradient red to orange, white bold text',
+    'Neon price tag, glowing edges, cyberpunk style, electric colors',
+    'Classic sale tag shape, vibrant red, white text, 3D shadow',
+    'Hexagonal badge, metallic silver, premium typography',
+    'Splash/splatter shape, energetic yellow, bold contrasting text',
+    'Clean pill-shaped badge, gradient teal to blue, modern minimal',
+  ];
+  
+  // Pick random styles for this generation
+  const randomCtaStyle = ctaStyles[Math.floor(Math.random() * ctaStyles.length)];
+  const randomPriceStyle = priceStyles[Math.floor(Math.random() * priceStyles.length)];
+  
   if (hasProductImage && hasLogo) {
     // BOTH product and logo provided
-    textPrompt = `Turn the subject in the FIRST uploaded image into a hyper-realistic cinematic product advertisement. Make it the hero focus with premium lighting, realistic textures, and a professional commercial layout.
+    textPrompt = `You are an award-winning advertising creative director who has worked with Nike, Apple, and Coca-Cola. Create a stunning, magazine-quality product advertisement.
 
-The SECOND uploaded image is the brand logo - place it in the top-left corner exactly as shown.
+PRODUCT (FIRST uploaded image):
+- This is the HERO product - preserve its exact appearance, colors, text, and design
+- Enhance with premium studio lighting and realistic shadows
+- Place prominently as the focal point
+
+LOGO (SECOND uploaded image):
+- Place in top-left corner ONLY - preserve exactly as uploaded
+- Do NOT duplicate or modify the logo
+
+BACKGROUND & SCENE:
+- Create a luxurious, contextual environment (like Nestle, Lay's, Coca-Cola commercials)
+- Dramatic rim lighting with golden hour warmth
+- Shallow depth of field with beautiful bokeh
+- Rich, cinematic color grading
+- The viewer should feel desire/appetite/excitement
 
 Theme: ${prompt.ideaTitle}
 ${styleContext ? `Style context: ${styleContext}...` : ''}
 
-Include clear, perfectly readable marketing text exactly as follows:
-• Product name: ${brandName}
-${slogan ? `• Slogan: ${slogan}` : ''}
-${pricing ? `• Price: ${pricing}` : ''}
-• CTA: Buy Now
+MARKETING TEXT (luxury magazine headline styling):
+${slogan ? `• HEADLINE: "${slogan}" 
+  - Premium editorial typography, large and bold
+  - Metallic gold/silver gradient effect with drop shadow
+  - Position prominently on empty space` : ''}
+${pricing ? `• PRICE BADGE: "${pricing}"
+  - Style: ${randomPriceStyle}
+  - Position: bottom-right area` : ''}
+• CTA BUTTON: "Buy Now"
+  - Style: ${randomCtaStyle}
+  - ONE button only, bottom-center area
 
-CRITICAL: Keep the product and logo EXACTLY as uploaded. Only enhance the background and add text.
-Use shallow depth of field, HDR lighting, 4K ultra detail, and a high-end brand aesthetic.`;
+DO NOT: Add extra text, duplicate logos, create cluttered layouts, use plain backgrounds.
+
+QUALITY: 2K resolution, HDR lighting, ray-traced reflections, professional color science, magazine-ready.`;
 
   } else if (hasProductImage) {
     // Only product image provided
-    textPrompt = `Turn the subject in the uploaded image into a hyper-realistic cinematic product advertisement. Make it the hero focus with premium lighting, realistic textures, and a professional commercial layout.
+    textPrompt = `You are an award-winning advertising creative director who has worked with Nike, Apple, and Coca-Cola. Create a stunning, magazine-quality product advertisement.
+
+PRODUCT (uploaded image):
+- This is the HERO product - preserve its exact appearance, colors, text, and design
+- Enhance with premium studio lighting and realistic shadows
+- Place prominently as the focal point
+
+BACKGROUND & SCENE:
+- Create a luxurious, contextual environment (like Nestle, Lay's, Coca-Cola commercials)
+- Dramatic rim lighting with golden hour warmth
+- Shallow depth of field with beautiful bokeh
+- Rich, cinematic color grading
+- The viewer should feel desire/appetite/excitement
 
 Theme: ${prompt.ideaTitle}
 ${styleContext ? `Style context: ${styleContext}...` : ''}
 
-Include clear, perfectly readable marketing text exactly as follows:
-• Product name: ${brandName}
-${slogan ? `• Slogan: ${slogan}` : ''}
-${pricing ? `• Price: ${pricing}` : ''}
-• CTA: Buy Now
+MARKETING TEXT (luxury magazine headline styling):
+${slogan ? `• HEADLINE: "${slogan}" 
+  - Premium editorial typography, large and bold
+  - Metallic gold/silver gradient effect with drop shadow
+  - Position prominently on empty space` : ''}
+${pricing ? `• PRICE BADGE: "${pricing}"
+  - Style: ${randomPriceStyle}
+  - Position: bottom-right area` : ''}
+• CTA BUTTON: "Buy Now"
+  - Style: ${randomCtaStyle}
+  - ONE button only, bottom-center area
 
-CRITICAL: Keep the product EXACTLY as uploaded. Only enhance the background and add text.
-Use shallow depth of field, HDR lighting, 4K ultra detail, and a high-end brand aesthetic.`;
+DO NOT: Add extra text, duplicate logos, create cluttered layouts, use plain backgrounds.
+
+QUALITY: 2K resolution, HDR lighting, ray-traced reflections, professional color science, magazine-ready.`;
 
   } else if (hasLogo) {
     // Only logo provided
-    textPrompt = `Create a hyper-realistic cinematic product advertisement for ${brandName}. 
+    textPrompt = `You are an award-winning advertising creative director. Create a stunning, magazine-quality advertisement for ${brandName}.
 
-The uploaded image is the brand logo - place it in the top-left corner exactly as shown.
+LOGO (uploaded image):
+- Place in top-left corner ONLY - preserve exactly as uploaded
+- Do NOT duplicate or modify
 
-Theme: ${prompt.ideaTitle}
-${styleContext ? `Style context: ${styleContext}...` : ''}
+BACKGROUND & SCENE:
+- Create a luxurious, premium environment (like Fortune 500 brand commercials)
+- Dramatic rim lighting, golden hour warmth
+- Shallow depth of field, cinematic color grading
+- Aspirational, premium mood
 
-Include clear, perfectly readable marketing text exactly as follows:
-• Product name: ${brandName}
-${slogan ? `• Slogan: ${slogan}` : ''}
-${pricing ? `• Price: ${pricing}` : ''}
-• CTA: Buy Now
+BRAND CONTEXT:
+- Brand: ${brandName}
+- Theme: ${prompt.ideaTitle}
+${styleContext ? `- Creative direction: ${styleContext}` : ''}
 
-CRITICAL: Keep the logo EXACTLY as uploaded.
-Use shallow depth of field, HDR lighting, 4K ultra detail, and a high-end brand aesthetic.`;
+BACKGROUND & SCENE:
+- Create a premium brand environment (think Nike, Apple quality)
+- Dramatic studio lighting with rim lights
+- Cinematic color grading, shallow depth of field
+- The viewer should feel brand prestige and trust
+
+TYPOGRAPHY (magazine editorial quality):
+• BRAND NAME: "${brandName}"
+  - Premium serif/sans-serif, large and commanding
+  - Metallic gold or silver gradient with drop shadow
+${slogan ? `• HEADLINE: "${slogan}" 
+  - Elegant editorial typography
+  - Subtle emboss or glow effect` : ''}
+${pricing ? `• PRICE BADGE: "${pricing}"
+  - Style: ${randomPriceStyle}
+  - Position: bottom-right area` : ''}
+• CTA BUTTON: "Shop Now"
+  - Style: ${randomCtaStyle}
+  - ONE button only, bottom center area
+
+CRITICAL RULES:
+- Logo appears EXACTLY ONCE
+- Each text element appears EXACTLY ONCE
+- Clean, uncluttered layout
+
+DO NOT: Duplicate any text, add extra logos, create busy layouts.
+
+QUALITY: 2K resolution, HDR lighting, professional color science.`;
 
   } else {
     // No images provided - pure text-to-image
-    textPrompt = `Create a hyper-realistic cinematic product advertisement for ${brandName}.
+    textPrompt = `You are an award-winning advertising creative director who has worked with Nike, Apple, and Coca-Cola. Create a stunning brand advertisement from scratch.
 
-Theme: ${prompt.ideaTitle}
-${styleContext ? `Style context: ${styleContext}...` : ''}
+BRAND: ${brandName}
+THEME: ${prompt.ideaTitle}
+${styleContext ? `CREATIVE DIRECTION: ${styleContext}` : ''}
 
-Include clear, perfectly readable marketing text exactly as follows:
-• Product name: ${brandName}
-${slogan ? `• Slogan: ${slogan}` : ''}
-${pricing ? `• Price: ${pricing}` : ''}
-• CTA: Buy Now
+CREATE:
+- A premium, aspirational scene that represents the brand
+- Think: high-end magazine ad or billboard quality
+- Dramatic lighting, cinematic composition
+- The viewer should feel drawn to the brand
 
-Use shallow depth of field, HDR lighting, 4K ultra detail, and a high-end brand aesthetic.`;
+TYPOGRAPHY (premium editorial styling):
+• BRAND NAME: "${brandName}"
+  - Large, bold, commanding presence
+  - Metallic gradient or embossed effect
+${slogan ? `• HEADLINE: "${slogan}" 
+  - Elegant, eye-catching typography
+  - Subtle glow or shadow effect` : ''}
+${pricing ? `• PRICE BADGE: "${pricing}"
+  - Style: ${randomPriceStyle}
+  - Position: bottom-right area` : ''}
+• CTA BUTTON: "Shop Now"
+  - Style: ${randomCtaStyle}
+  - ONE button only, bottom center area
+
+CRITICAL: Each text element appears EXACTLY ONCE. No duplicates.
+
+DO NOT: Duplicate text, create cluttered designs, use plain backgrounds.
+
+QUALITY: 2K resolution, HDR lighting, professional color grading, magazine-ready.`;
   }
   
   // Add text prompt to parts
