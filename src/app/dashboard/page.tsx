@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getProjectsByUser } from '@/lib/supabase-client';
+import { getProjectsByUser, deleteProject } from '@/lib/supabase-client';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,25 @@ export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDeleteProject = async (e: React.MouseEvent, projectId: string, projectName: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!confirm(`Delete "${projectName}" and all its ads? This cannot be undone.`)) return;
+    
+    try {
+      setDeletingId(projectId);
+      await deleteProject(projectId);
+      setProjects(prev => prev.filter(p => p.id !== projectId));
+    } catch (err: any) {
+      console.error('Failed to delete project:', err);
+      alert('Failed to delete project: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -131,7 +150,7 @@ export default function Dashboard() {
               return (
                 <Card 
                   key={project.id} 
-                  className="bg-slate-800 border-slate-700 hover:border-slate-600 transition-colors overflow-hidden group cursor-pointer"
+                  className="bg-slate-800 border-slate-700 hover:border-slate-600 transition-colors overflow-hidden group cursor-pointer relative"
                 >
                   {imageUrl && (
                     <div className="relative h-32 overflow-hidden bg-slate-700">
@@ -142,6 +161,24 @@ export default function Dashboard() {
                       />
                     </div>
                   )}
+                  {/* Delete button */}
+                  <button
+                    onClick={(e) => handleDeleteProject(e, project.id, project.business_name)}
+                    disabled={deletingId === project.id}
+                    className="absolute top-2 right-2 p-2 rounded-full bg-black/50 hover:bg-red-600 text-slate-300 hover:text-white transition-all duration-200 opacity-0 group-hover:opacity-100 z-10 disabled:opacity-50"
+                    title="Delete project"
+                  >
+                    {deletingId === project.id ? (
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    )}
+                  </button>
                   <CardHeader>
                     <CardTitle className="text-white">{project.business_name}</CardTitle>
                     <CardDescription>

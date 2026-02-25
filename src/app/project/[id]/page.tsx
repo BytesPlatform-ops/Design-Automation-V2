@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { getProjectDetails } from '@/lib/supabase-client';
+import { getProjectDetails, deleteGeneratedImage } from '@/lib/supabase-client';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -45,6 +45,37 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null);
+  const [deletingImageId, setDeletingImageId] = useState<string | null>(null);
+
+  const handleDeleteImage = async (e: React.MouseEvent, imageId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!confirm('Delete this ad? This cannot be undone.')) return;
+
+    try {
+      setDeletingImageId(imageId);
+      await deleteGeneratedImage(imageId);
+      
+      // Remove from local state
+      if (selectedImage?.id === imageId) setSelectedImage(null);
+      setProject(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          campaigns: prev.campaigns.map(c => ({
+            ...c,
+            generated_images: c.generated_images.filter(img => img.id !== imageId)
+          }))
+        };
+      });
+    } catch (err: any) {
+      console.error('Failed to delete image:', err);
+      alert('Failed to delete: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setDeletingImageId(null);
+    }
+  };
 
   useEffect(() => {
     const loadProject = async () => {
@@ -170,7 +201,7 @@ export default function ProjectDetailPage() {
                     {campaign.generated_images.map((image) => (
                       <Card 
                         key={image.id} 
-                        className="bg-slate-800 border-slate-700 hover:border-blue-500/50 transition-all duration-300 overflow-hidden cursor-pointer group"
+                        className="bg-slate-800 border-slate-700 hover:border-blue-500/50 transition-all duration-300 overflow-hidden cursor-pointer group relative"
                         onClick={() => setSelectedImage(selectedImage?.id === image.id ? null : image)}
                       >
                         <div className="relative overflow-hidden">
@@ -185,6 +216,24 @@ export default function ProjectDetailPage() {
                               {image.aspect_ratio}
                             </Badge>
                           )}
+                          {/* Delete icon */}
+                          <button
+                            onClick={(e) => handleDeleteImage(e, image.id)}
+                            disabled={deletingImageId === image.id}
+                            className="absolute top-2 left-2 p-2 rounded-full bg-black/50 hover:bg-red-600 text-slate-300 hover:text-white transition-all duration-200 opacity-0 group-hover:opacity-100 z-10 disabled:opacity-50"
+                            title="Delete this ad"
+                          >
+                            {deletingImageId === image.id ? (
+                              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                              </svg>
+                            ) : (
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            )}
+                          </button>
                         </div>
                         <CardContent className="pt-3 pb-3">
                           <p className="text-xs text-slate-500">
@@ -256,17 +305,35 @@ export default function ProjectDetailPage() {
                               </p>
                             </div>
                           </div>
-                          <div className="pt-2">
+                          <div className="pt-2 flex gap-3">
                             <a
                               href={selectedImage.image_url}
                               target="_blank"
                               rel="noopener noreferrer"
                               download
+                              className="flex-1"
                             >
                               <Button className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 w-full">
                                 ⬇ Download Full Resolution
                               </Button>
                             </a>
+                            <Button
+                              variant="outline"
+                              onClick={(e) => handleDeleteImage(e, selectedImage.id)}
+                              disabled={deletingImageId === selectedImage.id}
+                              className="border-red-500/50 text-red-400 hover:bg-red-600 hover:text-white hover:border-red-600"
+                            >
+                              {deletingImageId === selectedImage.id ? (
+                                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
+                              ) : (
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              )}
+                            </Button>
                           </div>
                         </div>
                       </div>

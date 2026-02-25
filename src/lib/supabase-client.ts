@@ -198,6 +198,68 @@ export async function getProjectDetails(projectId: string) {
   return data;
 }
 
+// Helper function to delete a generated image
+export async function deleteGeneratedImage(imageId: string) {
+  const { error } = await supabaseClient
+    .from('generated_images')
+    .delete()
+    .eq('id', imageId);
+
+  if (error) throw error;
+}
+
+// Helper function to delete a campaign and its images
+export async function deleteCampaign(campaignId: string) {
+  // Delete all images in the campaign first
+  const { error: imgError } = await supabaseClient
+    .from('generated_images')
+    .delete()
+    .eq('campaign_id', campaignId);
+  if (imgError) throw imgError;
+
+  // Then delete the campaign
+  const { error } = await supabaseClient
+    .from('campaigns')
+    .delete()
+    .eq('id', campaignId);
+  if (error) throw error;
+}
+
+// Helper function to delete a project and all its campaigns/images
+export async function deleteProject(projectId: string) {
+  // First get all campaigns for this project
+  const { data: campaigns, error: fetchError } = await supabaseClient
+    .from('campaigns')
+    .select('id')
+    .eq('project_id', projectId);
+
+  if (fetchError) throw fetchError;
+
+  // Delete all images for each campaign
+  if (campaigns && campaigns.length > 0) {
+    const campaignIds = campaigns.map(c => c.id);
+    const { error: imgError } = await supabaseClient
+      .from('generated_images')
+      .delete()
+      .in('campaign_id', campaignIds);
+    if (imgError) throw imgError;
+  }
+
+  // Delete all campaigns
+  const { error: campError } = await supabaseClient
+    .from('campaigns')
+    .delete()
+    .eq('project_id', projectId);
+  if (campError) throw campError;
+
+  // Finally delete the project
+  const { error } = await supabaseClient
+    .from('projects')
+    .delete()
+    .eq('id', projectId);
+  if (error) throw error;
+}
+
 // Helper function to upload image to storage
 export async function uploadImageToStorage(
   campaignId: string,
