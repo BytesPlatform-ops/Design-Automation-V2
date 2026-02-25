@@ -374,6 +374,11 @@ CTA: "${smartCTA}"
 
 AVOID: Duplicating elements, clutter, text lost in busy areas.
 
+⚠️ TEXT ACCURACY — READ CAREFULLY:
+- The brand name is EXACTLY: "${brandName}" — spell each word exactly as shown, do NOT repeat, skip, rearrange, or add any words
+- Each text string (brand name, slogan, price, CTA) must appear EXACTLY ONCE in the image
+- Double-check: no word in the brand name should appear twice
+
 CREATE: A scroll-stopping ${industryLabel} advertisement worthy of industry awards.`;
 
   } else if (hasLogo) {
@@ -432,6 +437,11 @@ CTA: "${smartCTA}"
 - Premium, cohesive design
 
 CRITICAL: Logo appears EXACTLY ONCE. Each text element appears EXACTLY ONCE.
+
+⚠️ TEXT ACCURACY — READ CAREFULLY:
+- The brand name is EXACTLY: "${brandName}" — spell each word exactly as shown, do NOT repeat, skip, rearrange, or add any words
+- Each text string (brand name, slogan, price, CTA) must appear EXACTLY ONCE in the image
+- Double-check: no word in the brand name should appear twice
 
 CREATE: A ${industryLabel} brand advertisement worthy of a Times Square billboard.`;
 
@@ -520,6 +530,11 @@ CTA: "${smartCTA}"
 - This should look like a premium ${industryLabel} advertising campaign, not a template
 
 CRITICAL: Each text element appears EXACTLY ONCE. No duplicates.
+
+⚠️ TEXT ACCURACY — READ CAREFULLY:
+- The brand name is EXACTLY: "${brandName}" — spell each word exactly as shown, do NOT repeat, skip, rearrange, or add any words
+- Each text string (brand name, slogan, price, CTA) must appear EXACTLY ONCE in the image
+- Double-check: no word in the brand name should appear twice
 
 CREATE: An advertisement so visually striking it would trend on social media and make ${brandName} look like the #1 brand in ${industryLabel}.`;
   }

@@ -8,6 +8,196 @@ import {
 // Lazy initialization to avoid build-time errors
 let openaiClient: OpenAI | null = null;
 
+/**
+ * Get current seasonal/trend context based on date and region
+ */
+function getSeasonalContext(): string {
+  const now = new Date();
+  const month = now.getMonth(); // 0-indexed
+  const day = now.getDate();
+  
+  const events: string[] = [];
+  const trends: string[] = [];
+
+  // === SEASONAL EVENTS (approximate dates) ===
+  
+  // Ramadan/Eid (shifts yearly — approximate for 2025-2027 range)
+  if ((month === 2 && day >= 10) || (month === 3 && day <= 15)) {
+    events.push('Ramadan season — iftar gatherings, spiritual warmth, crescent moon motifs, purple/gold/green color palettes, family togetherness, generous giving spirit');
+  }
+  if ((month === 3 && day >= 20) || (month === 4 && day <= 5)) {
+    events.push('Eid ul-Fitr season — celebration, joy, gift-giving, festive colors, sweets, new clothes, family reunions');
+  }
+  if ((month === 5 && day >= 5) || (month === 5 && day <= 20)) {
+    events.push('Eid ul-Adha season — sacrifice, sharing, family feasts, warm earthy tones, traditional values');
+  }
+  
+  // Western Holidays
+  if (month === 11 && day >= 20) {
+    events.push('Christmas season — warm reds/greens/golds, cozy festive vibes, gift-giving, holiday sparkle, snow elements');
+  }
+  if (month === 11 && day >= 25 && day <= 30) {
+    events.push('Black Friday / Cyber Monday — bold deal graphics, urgency, countdown energy, red/black/yellow sale aesthetic');
+  }
+  if (month === 0 && day <= 7) {
+    events.push('New Year — fresh starts, resolutions, "New Year New You" energy, midnight blue/gold/silver palettes');
+  }
+  if (month === 1 && day >= 7 && day <= 15) {
+    events.push('Valentine\'s Day — love, romance, red/pink/rose gold, hearts, couples, self-love angle');
+  }
+  if (month === 2 && day >= 1 && day <= 10) {
+    events.push('International Women\'s Day (March 8) — empowerment, bold feminine energy, purple/gold');
+  }
+  if (month === 4 && day >= 5 && day <= 15) {
+    events.push('Mother\'s Day season — warmth, gratitude, soft pastels, floral elements, gift-worthy messaging');
+  }
+  if (month === 5 && day >= 10 && day <= 20) {
+    events.push('Father\'s Day season — masculine warmth, bold/rugged, navy/whiskey tones, appreciation');
+  }
+  if (month === 9 && day >= 25) {
+    events.push('Halloween — dark/playful, orange/black/purple, spooky-fun energy, limited edition vibes');
+  }
+  
+  // Regional (South Asian)
+  if (month === 10 && day >= 1 && day <= 15) {
+    events.push('Diwali season — festival of lights, diyas, gold/orange/warm glow, sparklers, celebration');
+  }
+  if (month === 7 && day >= 10 && day <= 15) {
+    events.push('Pakistan Independence Day (Aug 14) — green/white, national pride, patriotic energy');
+  }
+  
+  // Seasonal moods
+  if (month >= 5 && month <= 7) {
+    trends.push('SUMMER vibes — bright colors, outdoor energy, refreshing tones, sunshine, heat, cooling products highlighted');
+  } else if (month >= 8 && month <= 10) {
+    trends.push('AUTUMN/FALL vibes — warm amber/copper/burgundy, cozy textures, harvest mood, layered comfort');
+  } else if (month >= 11 || month <= 1) {
+    trends.push('WINTER vibes — cool blues/silvers, cozy warmth contrast, indoor comfort, holiday spirit');
+  } else {
+    trends.push('SPRING vibes — fresh greens, bloom/renewal energy, pastels, new beginnings, outdoor optimism');
+  }
+
+  // === CURRENT DESIGN TRENDS (2025-2026) ===
+  trends.push('2025-2026 REALISTIC design trends to consider: Neo-brutalism (raw, bold, unpolished typography), maximalist color clashing, organic flowing shapes, bold serif typography comeback, editorial-style product photography (most effective!), dark mode aesthetics, warm grain/analog film revival, earth-tone minimalism, textured paper/fabric overlays in design, cinematic color grading, natural material focus (stone, wood, linen, ceramic), muted luxury palettes');
+
+  let context = '';
+  if (events.length > 0) {
+    context += `\n\n🎯 SEASONAL CONTEXT (background info only — use sparingly, MAX 1 idea can reference this, and ONLY if it genuinely fits the brand/product):\n${events.map(e => `- ${e}`).join('\n')}`;
+  }
+  context += `\n\n🎨 CURRENT SEASON & DESIGN TRENDS (subtle influence only — do NOT make entire ideas about seasons):\n${trends.map(t => `- ${t}`).join('\n')}`;
+  
+  return context;
+}
+
+/**
+ * Get platform-specific context based on aspect ratio
+ */
+function getPlatformContext(aspectRatio?: string): string {
+  switch (aspectRatio) {
+    case '1:1':
+      return `\n\n📱 PLATFORM: Instagram/Facebook Feed Post (Square)
+- Must be thumb-stopping in a crowded feed
+- Text must be readable at phone-screen size
+- Visual hierarchy crucial — users scroll FAST (1.7 seconds average)
+- High contrast and bold elements perform best
+- Consider how it looks as a small thumbnail`;
+    case '4:5':
+      return `\n\n📱 PLATFORM: Instagram Feed (Portrait — takes more screen space = more attention)
+- Vertical advantage — fills more of the phone screen than square
+- Keep key elements in center-top (bottom may be cropped in grid preview)
+- Portrait framing favors tall compositions and standing products
+- This format gets 20% more engagement than square on Instagram`;
+    case '9:16':
+      return `\n\n📱 PLATFORM: Instagram/TikTok/Facebook Story or Reel (Full Vertical)
+- FULL SCREEN experience — immersive, no distractions
+- Text should be in the center 60% (top/bottom are covered by UI elements)
+- Must grab attention in first 0.5 seconds
+- Bold, striking, high-impact visuals work best
+- Keep brand name and CTA in the safe zone (away from edges)
+- Think: magazine cover layout but vertical`;
+    case '16:9':
+      return `\n\n📱 PLATFORM: YouTube/LinkedIn/Twitter Banner (Landscape/Widescreen)
+- Cinematic widescreen format — think movie poster or billboard
+- Great for panoramic scenes and wide product layouts
+- Text works best at left-third or center
+- LinkedIn audience expects professional polish
+- YouTube thumbnails need BOLD text and expressive visuals`;
+    default:
+      return `\n\n📱 PLATFORM: Social media feed ad (optimize for scroll-stopping impact)`;
+  }
+}
+
+/**
+ * Get industry-specific competitor references and best practices
+ */
+function getIndustryInspirations(industry: string): string {
+  const inspirations: Record<string, string> = {
+    'Food & Beverage': `STUDY THESE TOP BRANDS for inspiration (adapt, don't copy):
+- Coca-Cola: Emotional storytelling, happiness association, iconic red
+- Starbucks: Lifestyle integration, cozy aesthetic, seasonal limited editions
+- McDonald's: Bold simplicity, "I'm Lovin' It" energy, appetite-appeal close-ups
+- Local chai/food brands: Authenticity, cultural connection, street-food energy
+BEST PRACTICES: Close-up hero shots that trigger appetite, steam/freshness cues, warm color palettes, lifestyle context showing enjoyment`,
+    
+    'Fashion & Apparel': `STUDY THESE TOP BRANDS for inspiration:
+- Nike: Aspirational athlete energy, bold minimalism, empowerment messaging
+- Zara: Editorial sophistication, clean layouts, model-centric storytelling
+- Khaadi/Sapphire: Cultural fusion, fabric texture focus, seasonal collections
+BEST PRACTICES: Model/lifestyle shots, fabric texture close-ups, outfit context, editorial lighting, seasonal trend alignment`,
+    
+    'Technology': `STUDY THESE TOP BRANDS for inspiration:
+- Apple: Ultra-minimal, product-as-art, white space mastery, one hero element
+- Samsung: Feature demonstrations, vibrant screens, lifestyle integration
+- Spotify: Bold gradients, duotone imagery, music-meets-visual energy
+BEST PRACTICES: Clean product renders, feature callouts, dark mode aesthetics, futuristic environments, screen-on-device mockups`,
+    
+    'Health & Fitness': `STUDY THESE TOP BRANDS for inspiration:
+- Nike Training: Sweat and determination, dramatic lighting, athlete stories
+- Gymshark: Community-driven, transformation stories, bold body-positive imagery
+- Peloton: Premium lifestyle, home fitness aspiration, warm but energetic
+BEST PRACTICES: Action shots with motion energy, before/after transformations, motivational text, sweat/texture realism, gym environment lighting`,
+    
+    'Beauty & Skincare': `STUDY THESE TOP BRANDS for inspiration:
+- Glossier: Dewy minimalism, skin-positive, soft pink aesthetic, real skin texture
+- Fenty Beauty: Inclusive diversity, bold colors, fashion-forward, high-energy
+- The Ordinary: Clinical clean, ingredient-focused, honest transparency
+BEST PRACTICES: Skin texture close-ups, product-on-skin application shots, dewy/glowing lighting, ingredient visualization, clean clinical layouts`,
+    
+    'Real Estate': `STUDY THESE TOP BRANDS for inspiration:
+- Emaar: Luxury lifestyle aspiration, golden hour architecture, skyline drama
+- DHA: Trust, security, family-centric, green spaces, community living
+- Zameen.com: Clear property info, location highlights, investment angle
+BEST PRACTICES: Golden hour exterior shots, interior lifestyle scenes, aerial/drone perspectives, family aspiration, investment value messaging`,
+    
+    'Automotive': `STUDY THESE TOP BRANDS for inspiration:
+- BMW: Performance precision, dramatic lighting on bodywork, "Ultimate Driving Machine" energy
+- Tesla: Futuristic minimalism, tech-forward, sustainability angle
+- Toyota: Reliability, adventure, family, "Let's Go Places" lifestyle
+BEST PRACTICES: Dramatic car-as-hero lighting, road/landscape context, speed/power suggestion, interior luxury details, reflection/surface quality`,
+    
+    'Education': `STUDY THESE TOP BRANDS for inspiration:
+- Coursera/Udemy: Transformation promise, career growth, accessible knowledge
+- Khan Academy: Friendly, approachable, diverse learners, bright optimistic colors
+- University brands: Prestige, campus beauty, alumni success, tradition
+BEST PRACTICES: Student success stories, bright optimistic palettes, knowledge/growth metaphors, campus or study lifestyle, career transformation`,
+    
+    'Jewelry & Luxury': `STUDY THESE TOP BRANDS for inspiration:
+- Tiffany & Co: Iconic blue, elegant simplicity, gift-giving moments
+- Cartier: Red + gold opulence, dramatic close-ups, royalty association
+- Local jewelers: Cultural wedding context, bridal sets, gold investment
+BEST PRACTICES: Macro close-ups on skin, dramatic sparkle lighting, velvet/silk surfaces, gift-box reveals, cultural occasion context`,
+  };
+
+  // Try exact match first, then partial match
+  for (const [key, value] of Object.entries(inspirations)) {
+    if (industry.toLowerCase().includes(key.toLowerCase().split(' ')[0])) {
+      return value;
+    }
+  }
+
+  return `STUDY the TOP 5 brands in the ${industry} industry. What makes their ads scroll-stopping? Adapt their visual language and production quality for this brand. Research what aesthetic, lighting, composition, and messaging patterns the BEST ${industry} brands use.`;
+}
+
 function getOpenAI(): OpenAI {
   if (!openaiClient) {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -24,47 +214,51 @@ function getOpenAI(): OpenAI {
  */
 function generateMockIdeas(details: BusinessDetails): MarketingIdea[] {
   const productName = details.niche.split(' ').slice(0, 3).join(' ');
+  const biz = details.businessName;
+  const season = getSeasonalContext();
+  const isPhysical = details.productType === 'physical';
+  const isService = details.productType === 'service';
   
   return [
     {
       id: 'idea_1',
-      title: 'Product Launch Spotlight',
-      description: `Showcase your ${productName} as the star. A clean, premium product-focused ad with bold "NOW AVAILABLE" messaging and your brand front and center.`,
-      hooks: ['Introducing ' + productName, 'Now Available', 'Get Yours Today'],
-      hashtags: ['#NewLaunch', '#NowAvailable', `#${details.businessName.replace(/\s+/g, '')}`, '#ShopNow'],
-      visualConcept: `Professional product photography with ${productName} as the hero. Clean background, dramatic lighting highlighting the product. Large bold text "${details.businessName}" at top, ${details.pricingInfo ? `"${details.pricingInfo}" prominently displayed` : '"Order Now" call-to-action'}. ${details.brandSlogan ? `Slogan "${details.brandSlogan}" included.` : ''}`
+      title: `${productName} Premium Showcase`,
+      description: `Hero product shot with cinematic ${details.industry} styling. The kind of image that makes someone stop scrolling and say "I need this."`,
+      hooks: [`Discover ${productName}`, `${biz} Presents`, 'Elevate Your Standard'],
+      hashtags: [`#${biz.replace(/\s+/g, '')}`, `#${details.industry.replace(/[\s&]+/g, '')}`, '#PremiumQuality', '#ShopNow'],
+      visualConcept: `${isPhysical ? `Hero shot of ${productName} on a dark textured surface with dramatic side-lighting creating depth and shadows` : isService ? `Split composition showing transformation — the before struggle vs. the after confidence of using ${biz}` : `Sleek device mockup floating at an angle with ${productName} interface glowing on screen, against a gradient background`}. "${biz}" in bold modern typography top-center. ${details.pricingInfo ? `"${details.pricingInfo}" in an attention-grabbing badge bottom-right.` : 'Strong call-to-action button at bottom.'} ${details.brandSlogan ? `"${details.brandSlogan}" as a subtle tagline.` : ''} Cinematic quality, premium feel.`
     },
     {
       id: 'idea_2',
-      title: 'Special Offer Banner',
-      description: `Drive sales with a compelling offer ad. Eye-catching pricing display with urgency elements. Perfect for promotions and seasonal sales.`,
-      hooks: ['Limited Time Offer', 'Special Price', 'Don\'t Miss Out'],
-      hashtags: ['#Sale', '#SpecialOffer', '#LimitedTime', '#Discount'],
-      visualConcept: `Bold promotional design with ${productName} displayed prominently. ${details.pricingInfo ? `Large "${details.pricingInfo}" in eye-catching typography` : 'Attractive price point displayed'}. "${details.businessName}" branding clear. Urgency text like "Limited Stock" or "Order Today". Vibrant colors that pop.`
+      title: `${details.industry} Lifestyle Vision`,
+      description: `Show ${productName} in a real-world lifestyle context. Not just the product — the LIFE it enables. Aspirational but authentic.`,
+      hooks: ['Live Better', `The ${biz} Lifestyle`, 'Made For You'],
+      hashtags: ['#Lifestyle', '#Aesthetic', `#${biz.replace(/\s+/g, '')}Life`, '#Goals'],
+      visualConcept: `${isPhysical ? `${productName} in a warm, lived-in lifestyle setting — on a kitchen counter, beside a morning coffee, golden natural light streaming in` : isService ? `A person confidently enjoying the results of ${biz} — radiant, relaxed, in a beautiful natural setting` : `Someone using ${productName} at a minimal desk setup, focused and productive, soft ambient lighting`}. Shot feels candid and authentic, not staged. "${biz}" branding subtle but present. ${details.pricingInfo ? `"${details.pricingInfo}" worked into the design naturally.` : ''} Warm, inviting color palette.`
     },
     {
       id: 'idea_3',
-      title: 'Benefit-Focused Hero',
-      description: `Highlight the main benefit your ${productName} delivers. A direct, clear message showing what the customer gets.`,
-      hooks: [details.productType === 'digital' ? 'Save Hours Every Day' : 'Premium Quality', 'Experience the Difference', 'Upgrade Now'],
-      hashtags: ['#Quality', '#Premium', `#${details.industry.replace(/\s+/g, '')}`, '#MustHave'],
-      visualConcept: `${details.productType === 'physical' ? `Beautiful product shot of ${productName} in use context` : details.productType === 'service' ? 'Happy customer enjoying the service result' : `Sleek mockup showing ${productName} interface on devices`}. Headline text showing the key benefit. "${details.businessName}" logo placement. ${details.brandSlogan ? `"${details.brandSlogan}" as tagline.` : 'Clear call-to-action text.'}`
+      title: 'Bold Statement Ad',
+      description: `Typography-led design where the MESSAGE is the hero. The kind of ad that communicates in 2 seconds flat.`,
+      hooks: [`Why ${biz}?`, 'Don\'t Settle', `${productName}. Period.`],
+      hashtags: ['#Bold', '#Statement', `#${details.industry.replace(/[\s&]+/g, '')}`, '#NowAvailable'],
+      visualConcept: `Bold typographic design — large, impactful text "${details.brandSlogan || biz}" takes center stage against a rich, solid-color background. ${isPhysical ? `Small ${productName} image at bottom as anchor element` : 'Subtle visual texture in the background'}. Modern sans-serif or bold serif font feeling. ${details.pricingInfo ? `"${details.pricingInfo}" in a contrasting accent color.` : ''} Minimal but powerful. High contrast between text and background.`
     },
     {
       id: 'idea_4',
-      title: 'Social Proof Ad',
-      description: `Build trust instantly with a testimonial-style ad. Show real results and customer satisfaction with ${details.businessName}.`,
-      hooks: ['Trusted by Thousands', '5-Star Rated', 'See Why Everyone Loves It'],
-      hashtags: ['#CustomerLove', '#Reviews', '#Recommended', '#TopRated'],
-      visualConcept: `Product image with star rating overlay (★★★★★). Quote-style testimonial text. "${details.businessName}" branding prominent. ${details.pricingInfo ? `Price "${details.pricingInfo}" shown` : 'Shop Now button'}. Clean, trustworthy design aesthetic.`
+      title: 'Trust & Social Proof',
+      description: `Build instant credibility. Combine product quality with social validation — the ad that makes people think "everyone else already has this."`,
+      hooks: ['Trusted by Thousands', `Why Everyone Loves ${biz}`, '★★★★★ Rated'],
+      hashtags: ['#Trusted', '#CustomerFavorite', '#TopRated', '#Reviews'],
+      visualConcept: `Clean, trustworthy layout with ${isPhysical ? `${productName} beautifully presented` : `${biz} branding`} alongside 5-star rating visual and a short testimonial quote. Light, airy background — white or soft cream. "${biz}" logo prominent. ${details.pricingInfo ? `Price "${details.pricingInfo}" shown clearly.` : 'Clear CTA at bottom.'} Professional, credible, clean design that screams reliability.`
     },
     {
       id: 'idea_5',
-      title: 'Quick Feature Showcase',
-      description: `Highlight 3 key features of your ${productName}. Perfect for products with multiple selling points.`,
-      hooks: ['3 Reasons to Love It', 'Why Choose Us', 'Features You\'ll Love'],
-      hashtags: ['#Features', '#WhyChooseUs', `#${details.businessName.replace(/\s+/g, '')}`, '#Quality'],
-      visualConcept: `Central product image of ${productName} with 3 feature callouts around it. Each feature with icon and short text. "${details.businessName}" header. ${details.pricingInfo ? `"Starting at ${details.pricingInfo}"` : 'Clear CTA button'}. Modern, infographic-style layout.`
+      title: 'Seasonal / Trending Concept',
+      description: `Tap into current cultural moments or trending aesthetics. Makes the brand feel RELEVANT and current, not generic.`,
+      hooks: ['Limited Edition', `This Season's Must-Have`, 'Trending Now'],
+      hashtags: ['#Trending', '#NewDrop', '#MustHave', `#${biz.replace(/\s+/g, '')}2026`],
+      visualConcept: `${isPhysical ? `${productName} presented with current seasonal aesthetic — think trending color palettes and textures of 2025-2026 (soft gradients, organic shapes, neo-brutalist typography)` : `${biz} branded in a trendy, contemporary visual style that feels fresh and current`}. Could incorporate seasonal elements if relevant. Modern, editorial feel — like a high-end magazine ad meets Instagram content. "${biz}" in a fresh, contemporary typography style. ${details.pricingInfo ? `"${details.pricingInfo}" in accent element.` : ''} Feels like the brand is ahead of the curve.`
     }
   ];
 }
@@ -81,26 +275,51 @@ export async function generateMarketingIdeas(
     return generateMockIdeas(details);
   }
 
-  const systemPrompt = `You are an elite creative director at a world-class advertising agency. You've won Cannes Lions, D&AD Black Pencils, and One Show Gold across EVERY industry — food, fashion, tech, fitness, beauty, automotive, real estate, finance, gaming, and more.
+  // Get dynamic context
+  const seasonalContext = getSeasonalContext();
+  const platformContext = getPlatformContext(details.aspectRatio);
+  const industryInspirations = getIndustryInspirations(details.industry);
 
-Your specialty: Creating SCROLL-STOPPING single-image ads for social media that look like they cost $100,000 to produce.
+  const systemPrompt = `You are an elite creative director at a world-class advertising agency. You create ad concepts that are BOTH visually stunning AND commercially effective.
+
+Your specialty: Creating SCROLL-STOPPING single-image ads for social media that look like they cost $100,000 to produce — but are REALISTIC and achievable.
 
 CRITICAL RULES:
-1. Each idea must be a SINGLE IMAGE AD — not a campaign, not a video, not a carousel
-2. Each idea must feel UNIQUE and DIFFERENT from the others — vary the mood, angle, scene, and approach
-3. The visualConcept is the MOST IMPORTANT field — it directly drives the AI image generator
-4. Think about what makes the TOP ads in THIS SPECIFIC industry incredible, and create concepts at that level
-5. NO generic templates — every concept should feel custom-crafted for this exact business
 
-For visualConcept, think like a photographer/art director and specify:
-- EXACT scene/environment (not "clean background" but "brushed concrete surface with morning light streaming from the left")
-- Lighting style (golden hour, studio rim light, neon glow, natural window light, dramatic chiaroscuro)
-- Composition (hero product center-frame, rule of thirds, overhead flat-lay, 45-degree angle)
-- Mood/emotion (luxury calm, energetic urgency, cozy warmth, sleek minimalism, bold maximalism)
-- Material/texture references (marble, brushed metal, natural wood grain, velvet, water droplets)
-- Color mood (warm earth tones, cool minimalist palette, vibrant pop colors, moody dark tones)
+1. SINGLE IMAGE ADS ONLY — not a campaign, not a video, not a carousel
 
-The visualConcept should read like a detailed shot description a photographer would use on set.
+2. EACH IDEA = UNIQUE — vary the mood, angle, scene, and approach across all 5
+
+3. THE visualConcept IS EVERYTHING — it directly drives the AI image generator (Gemini). Quality here = quality of final image.
+
+4. COMMERCIAL EFFECTIVENESS FIRST:
+   - Every idea must be designed to SELL the product, not just look artistic
+   - The target audience must INSTANTLY understand what's being sold
+   - The product/brand must be the HERO in every concept
+   - Think: "Would the actual target customer stop scrolling and want to BUY?"
+   - A restaurant owner doesn't want retro-futurism. A biryani lover doesn't care about surreal cloudscapes.
+
+5. AI GENERATION FEASIBILITY — THIS IS CRITICAL:
+   - Every concept must be REALISTIC for AI image generation
+   - NEVER suggest: surreal floating objects, neon gradient meshes, crystal bowls in clouds, retro-futurism abstractions, waterfalls of products, hyper-realistic single grain close-ups, dreamlike cloudscapes, impossible physics, abstract digital art, 3D renders floating in void
+   - ALWAYS suggest: Natural photography scenes, studio setups, lifestyle environments, close-up product shots, real-world settings with tangible props
+   - The final image should look like a REAL professional photograph, NOT digital art or fantasy
+   - Reality check: "Could a photographer recreate this scene in a real studio?" If NO, don't suggest it.
+
+6. INDUSTRY AUTHENTICITY — match the visual language that customers in THIS industry expect
+
+6. SEASONAL AWARENESS — MAXIMUM 1 out of 5 ideas can reference the current season or holiday, and ONLY if it genuinely enhances the brand. The other 4 ideas must be SEASON-AGNOSTIC (would work any time of year). DO NOT make multiple ideas about winter/summer/holidays.
+
+8. NO GENERIC TEMPLATES — every concept should feel custom-crafted for this exact business
+
+For visualConcept, write a PHOTOGRAPHER'S SHOT LIST:
+- EXACT scene/environment (not "clean background" but "brushed concrete counter with morning light from the left window")
+- Lighting: direction, quality, color temperature (golden hour, studio softbox, natural window, dramatic side-light)
+- Composition: camera angle, product placement, rule of thirds, depth of field
+- Materials/surfaces: specific tangible textures (slate, wood grain, linen cloth, wet glass)
+- Props: real-world items that enhance the scene (spices, fabrics, devices — things that EXIST)
+- Color palette: 2-3 dominant colors as a mood (warm earth tones, cool minimalist blues, etc.)
+- Emotional tone: ONE clear emotion per concept (cozy, energetic, luxurious, fresh, urgent, etc.)
 
 Always respond with valid JSON.`;
 
@@ -110,52 +329,77 @@ Always respond with valid JSON.`;
 Business Name: "${details.businessName}"
 Industry: ${details.industry}
 Product/Service: ${details.niche}
-Product Type: ${details.productType} (${details.productType === 'physical' ? 'tangible product you can hold' : details.productType === 'digital' ? 'software/app/digital tool' : 'service business'})
+Product Type: ${details.productType} (${details.productType === 'physical' ? 'tangible product you can hold/see' : details.productType === 'digital' ? 'software/app/digital tool' : 'service business'})
 ${details.brandSlogan ? `Brand Slogan: "${details.brandSlogan}"` : 'No slogan provided'}
 ${details.pricingInfo ? `Pricing: "${details.pricingInfo}"` : 'No pricing provided'}
+${platformContext}
+${seasonalContext}
+
+=== INDUSTRY INTELLIGENCE ===
+${industryInspirations}
 
 === YOUR TASK ===
 Create 5 distinctly different ad concepts. Each must:
-1. Be a SINGLE IMAGE ad (Instagram/Facebook feed format)
+1. Be a SINGLE IMAGE ad optimized for the platform above
 2. Feature "${details.businessName}" brand name prominently
 ${details.pricingInfo ? `3. Display the price "${details.pricingInfo}" in an eye-catching way` : '3. Include a compelling call-to-action'}
 ${details.brandSlogan ? `4. Incorporate the slogan "${details.brandSlogan}"` : ''}
 
-=== MAKE EACH CONCEPT UNIQUE ===
-Vary across these dimensions — each ad should feel completely different:
+=== HOW TO CREATE THE 5 IDEAS ===
 
-AD 1 - HERO PRODUCT SHOWCASE: The product/service as the absolute star. Premium studio-quality presentation. Think: Apple product launch level.
+Do NOT follow a fixed formula. Instead, think like a real creative director:
+- What would make someone in ${details.industry} STOP scrolling?
+- What visual HASN'T been done a million times in this industry?
+- What emotion will make the viewer ACT?
+- What would the TOP brand in ${details.industry} post tomorrow?
 
-AD 2 - LIFESTYLE/ASPIRATIONAL: Show the life AFTER using this product/service. The dream outcome. The emotional payoff. Think: Nike "Just Do It" energy.
+Your 5 ideas should NATURALLY span different approaches. Some REALISTIC directions (pick what fits BEST — don't force all):
 
-AD 3 - BOLD TYPOGRAPHIC: Typography-led design where the words are the visual. Striking, artistic text treatment with the product as secondary element. Think: fashion magazine cover meets advertising.
+• Product-as-hero (premium studio showcase, close-up detail, beautiful product photography)
+• Lifestyle context (product in real life, aspirational scene, someone enjoying/using it)
+• Bold typography-led (words ARE the visual, minimal but impactful, strong message)
+• Mood/atmosphere (sensory, emotional, cinematic, texture-rich — but REAL scenes)
+• Editorial style (magazine-quality photography, behind-the-scenes of the brand)
+• Cultural moment (tie to current season/event if one is happening now)
+• Social proof (review-style, "as seen on", testimonial aesthetic, trust signals)
+• Problem → Solution (show the pain point, then the product as hero — split frame)
+• Ingredient/process showcase (what makes this product special — raw materials, craftsmanship)
+• Comparison/before-after (transformation story in one frame)
 
-AD 4 - SENSORY/ATMOSPHERIC: Create MOOD and FEELING. ${details.productType === 'physical' ? 'Textures, close-ups, macro details that make you want to reach into the screen' : details.productType === 'service' ? 'The transformation moment — the before/after feeling' : 'The futuristic, innovative energy of using cutting-edge technology'}. Think: perfume ad or luxury automotive commercial.
+Choose the 5 directions that will be MOST EFFECTIVE for "${details.businessName}" specifically.
 
-AD 5 - DISRUPTIVE/UNEXPECTED: Break the rules. Unexpected angle, surprising composition, pattern-interrupt that stops the scroll. Think: the ad that makes someone screenshot and share.
+A food brand might need: appetite hero + recipe lifestyle + Ramadan special + social proof + ingredient showcase
+A tech brand might need: product on desk + feature callout + dark mode showcase + lifestyle setup + comparison
+A salon might need: transformation before/after + luxurious interior + seasonal bridal + testimonial + treatment close-up
+
+THINK SPECIFICALLY for ${details.industry} / ${details.niche}.
+
+⚠️ REALITY CHECK — DO NOT GENERATE:
+- Surreal/fantasy scenes (no floating objects in clouds, no dreamscapes, no impossible physics)
+- Abstract digital art (no neon gradient meshes, no retro-futurism, no 3D voids)
+- Scenes that can't exist in real life (no waterfall of products, no single grain macro in space)
+- Concepts that confuse the viewer about WHAT is being sold
+- Ideas that only appeal to art directors, not actual BUYERS
 
 === VISUAL CONCEPT QUALITY STANDARD ===
-Your visualConcept must be SPECIFIC enough to direct a photographer. 
+Your visualConcept must be SPECIFIC enough to direct a photographer.
 
 BAD (too generic): "Product on clean background with dramatic lighting and bold text"
 GOOD (specific & cinematic): "Hero product placed on a weathered wooden table with natural grain, backlit by soft window light creating translucent edges. Background: warm blurred bokeh of cafe ambient light. Brand name in bold serif typography overlaid top-left with semi-transparent white backdrop. Price tag as a vintage-style leather label hanging from string. Shallow depth of field, everything feels warm, artisanal, and accessible."
 
-INCREDIBLY IMPORTANT - NO REPETITION ACROSS IDEAS:
-- Each visualConcept must use COMPLETELY DIFFERENT surfaces/materials
-- FORBIDDEN to repeat: marble, concrete, specific material choices, lighting direction, or composition angles
-- AD 1 uses marble? → AD 2 cannot
-- AD 2 uses window light? → AD 3 must use different light source
-- AD 3 uses overhead angle? → AD 4 must use different angle
-- Use varied environments: studio vs outdoor vs lifestyle vs abstract vs dark vs bright
-
-Each concept should be visually DISTINCT at first glance.
+CRITICAL - NO REPETITION ACROSS IDEAS:
+- Each visualConcept must use COMPLETELY DIFFERENT surfaces/materials/environments
+- Each must have DIFFERENT lighting (side-lit, backlit, overhead, neon, natural, dramatic)
+- Each must have DIFFERENT color palette mood (warm vs cool vs vibrant vs muted vs dark)
+- Each must have DIFFERENT emotional energy (calm vs urgent vs playful vs premium vs raw)
+- The 5 ads should look like they came from 5 DIFFERENT photoshoots
 
 Include in every visualConcept:
-- Exact scene description (surfaces, materials, environment) - DIFFERENT FOR EACH
-- Lighting direction and quality - VARIED ACROSS ALL 5
-- Text placement and style suggestion
-- Color palette mood - CONTRAST BETWEEN IDEAS
-- Emotional tone - NO DUPLICATES
+- Exact scene description (surfaces, materials, environment) - UNIQUE PER IDEA
+- Lighting direction and quality - VARIED
+- Text placement and style feeling
+- Color palette mood - CONTRASTING
+- Emotional tone - ALL DIFFERENT
 
 Respond with JSON:
 {
@@ -177,7 +421,7 @@ Respond with JSON:
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ],
-    temperature: 0.95,
+    temperature: 0.90,
     response_format: { type: 'json_object' }
   });
 
@@ -258,6 +502,11 @@ CRITICAL - AVOID REPETITION:
 
 The 3 prompts you create should look like totally different photoshoots, not variations on a theme.
 
+TREND & CULTURAL AWARENESS:
+- If a seasonal event is relevant, weave its visual language naturally (festive lights, warm tones for holidays, fresh greens for spring launches, etc.)
+- Reference current 2025 design movements when they fit (neo-brutalism, AI surrealism, glassmorphism, grain/analog revival)
+- DON'T force trends — only use them when they genuinely enhance the concept
+
 Always respond with valid JSON.`;
 
   const productTypeGuidelines: Record<string, string> = {
@@ -283,6 +532,9 @@ Always respond with valid JSON.`;
 - The viewer should feel "this will upgrade my life"`
   };
 
+  const seasonalContext = getSeasonalContext();
+  const platformContext = getPlatformContext(details.aspectRatio);
+
   const userPrompt = `Transform these selected ad concepts into PRODUCTION-READY image generation prompts.
 
 === BRAND CONTEXT ===
@@ -294,6 +546,10 @@ ${details.brandSlogan ? `Slogan: "${details.brandSlogan}"` : 'No slogan'}
 ${details.pricingInfo ? `Pricing: "${details.pricingInfo}"` : 'No pricing'}
 
 ${productTypeGuidelines[details.productType]}
+
+=== CURRENT CONTEXT (USE IF RELEVANT) ===
+${seasonalContext}
+${platformContext}
 
 === SELECTED AD CONCEPTS ===
 ${selectedIdeas.map((idea, i) => `
