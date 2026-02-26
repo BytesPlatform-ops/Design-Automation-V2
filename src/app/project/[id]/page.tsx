@@ -277,14 +277,6 @@ export default function ProjectDetailPage() {
                           />
                         </div>
                         <div className="space-y-4">
-                          <div>
-                            <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-2">
-                              Prompt Used
-                            </h3>
-                            <p className="text-slate-300 text-sm leading-relaxed bg-slate-900 rounded-lg p-4 max-h-64 overflow-y-auto">
-                              {selectedImage.prompt || 'No prompt recorded'}
-                            </p>
-                          </div>
                           <div className="flex gap-4">
                             {selectedImage.aspect_ratio && (
                               <div>
