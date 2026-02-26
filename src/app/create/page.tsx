@@ -36,12 +36,13 @@ export default function CreatePage() {
     setCurrentStep(2);
   };
 
-  const handleBrandInfoSubmit = (slogan: string, pricing: string) => {
+  const handleBrandInfoSubmit = (slogan: string, pricing: string, adCopyPoints: string) => {
     if (businessDetails) {
       setBusinessDetails({
         ...businessDetails,
         brandSlogan: slogan || undefined,
         pricingInfo: pricing || undefined,
+        adCopyPoints: adCopyPoints || undefined,
       });
     }
     setCurrentStep(3);
@@ -134,6 +135,7 @@ export default function CreatePage() {
           brandName: businessDetails.businessName,
           slogan: businessDetails.brandSlogan,
           pricing: businessDetails.pricingInfo,
+          adCopyPoints: businessDetails.adCopyPoints,
           productType: businessDetails.productType,
           industry: businessDetails.industry,
           niche: businessDetails.niche,
@@ -257,6 +259,7 @@ export default function CreatePage() {
         {currentStep === 2 && businessDetails && (
           <BrandInfoStep 
             businessName={businessDetails.businessName}
+            productType={businessDetails.productType}
             onSubmit={handleBrandInfoSubmit}
             onBack={() => setCurrentStep(1)}
           />

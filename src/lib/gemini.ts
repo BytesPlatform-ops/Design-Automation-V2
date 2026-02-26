@@ -176,7 +176,8 @@ async function generateSingleImage(
   aspectRatio: AspectRatio = '1:1',
   brandAssets?: BrandAssets,
   industry?: string,
-  niche?: string
+  niche?: string,
+  adCopyPoints?: string
 ): Promise<{ imageData: string; prompt: string }> {
   const { width, height } = getImageDimensions(aspectRatio);
   
@@ -298,6 +299,15 @@ ${pricing ? `PRICE ELEMENT: "${pricing}"
 - Make it IMPOSSIBLE TO MISS but not tacky — you know the balance
 - Position strategically for natural eye flow` : ''}
 
+${adCopyPoints ? `KEY SELLING POINTS TO DISPLAY ON THE AD:
+${adCopyPoints}
+- You have FULL CREATIVE FREEDOM on how to present these — think like a top-tier graphic designer
+- Design them as BEAUTIFUL visual elements: styled feature cards, elegant info strips, glass-morphism panels, icon-paired labels, gradient tags, or any premium design treatment
+- They should look like a DESIGNED element of the ad — NOT a plain text list pasted on top
+- Match the overall ad aesthetic and color scheme
+- Must be readable but visually integrated into the composition
+- Include ALL points exactly as written — do not skip or rephrase any` : ''}
+
 CTA: "${smartCTA}"
 - Design a CTA element that is the NATURAL next step for a ${industryLabel} customer
 - Choose colors that create URGENCY while matching the ad's premium feel
@@ -305,7 +315,7 @@ CTA: "${smartCTA}"
 - Position at bottom area, sized for impact
 
 === YOUR EXPERTISE PRINCIPLES ===
-- Visual hierarchy: Product → Headline → Price → CTA
+- Visual hierarchy: Product → Headline → ${adCopyPoints ? 'Key Points → ' : ''}Price → CTA
 - Color theory: Complementary/contrasting colors for readability
 - Breathing room: Text needs space, never cramped or overlapping
 - Legibility: Every element readable even as a small thumbnail
@@ -362,12 +372,18 @@ ${pricing ? `PRICE ELEMENT: "${pricing}"
 - Shape, colors, position — all your creative call
 - Must be noticeable but elegant` : ''}
 
+${adCopyPoints ? `KEY SELLING POINTS TO DISPLAY ON THE AD:
+${adCopyPoints}
+- Design these as BEAUTIFUL visual elements — styled cards, elegant panels, icon-paired labels, or any premium treatment
+- They must look DESIGNED, not like a plain text list — match the ad's overall aesthetic
+- Include ALL points exactly as written` : ''}
+
 CTA: "${smartCTA}"
 - Natural next step for a ${industryLabel} customer
 - Premium feel, prominent placement
 
 === YOUR EXPERTISE PRINCIPLES ===
-- Visual hierarchy: Product → Brand → Headline → Price → CTA
+- Visual hierarchy: Product → Brand → Headline → ${adCopyPoints ? 'Key Points → ' : ''}Price → CTA
 - Color theory for readability, breathing room for text
 - Every element readable at thumbnail size
 - This should look like an ad FROM a top ${industryLabel} brand
@@ -426,12 +442,19 @@ ${pricing ? `PRICE/OFFER: "${pricing}"
 - Design that feels native to THIS ad and THIS industry
 - Noticeable but elegant` : ''}
 
+${adCopyPoints ? `KEY SELLING POINTS TO DISPLAY ON THE AD:
+${adCopyPoints}
+- You have FULL CREATIVE FREEDOM — design these as beautiful visual elements that feel NATIVE to the ad
+- Think: styled feature cards, glass panels, gradient tags, icon-paired labels, elegant info strips — anything that looks DESIGNED
+- NOT a plain text list — these should look like they were crafted by a graphic designer
+- Include ALL points exactly as written` : ''}
+
 CTA: "${smartCTA}"
 - Natural next step for ${industryLabel} customers
 - Premium feel, prominent placement
 
 === YOUR EXPERTISE PRINCIPLES ===
-- Visual hierarchy: Logo → Brand Name → Headline → Price → CTA
+- Visual hierarchy: Logo → Brand Name → Headline → ${adCopyPoints ? 'Key Points → ' : ''}Price → CTA
 - Industry-authentic aesthetics for ${industryLabel}
 - Each element readable at thumbnail size
 - Premium, cohesive design
@@ -517,13 +540,21 @@ ${pricing ? `PRICE/OFFER: "${pricing}"
 - Badge, ribbon, or elegant callout based on what fits YOUR scene and ${industryLabel} norms
 - Noticeable but not overwhelming` : ''}
 
+${adCopyPoints ? `KEY SELLING POINTS TO DISPLAY ON THE AD:
+${adCopyPoints}
+- You have FULL CREATIVE FREEDOM on presentation — think like a world-class graphic designer
+- Design as BEAUTIFUL visual elements: styled feature cards, glass-morphism panels, gradient tags, icon-paired labels, elegant info strips, or any premium design treatment
+- These must look DESIGNED and visually integrated — NOT a plain text list pasted on the image
+- Match the ad's color scheme and overall aesthetic perfectly
+- Include ALL points exactly as written — do not skip or rephrase` : ''}
+
 CTA: "${smartCTA}"
 - A CTA element that feels like the obvious next step for a ${industryLabel} customer
 - Premium feel matching the overall ad aesthetic
 - Prominent but not garish
 
 === YOUR CREATIVE PRINCIPLES ===
-- Visual hierarchy: Scene → Brand Name → Tagline → Price → CTA
+- Visual hierarchy: Scene → Brand Name → Tagline → ${adCopyPoints ? 'Key Points → ' : ''}Price → CTA
 - The SCENE is as important as the text — make it STUNNING
 - Color harmony between visual and typography
 - Every element readable at thumbnail size
@@ -539,6 +570,11 @@ CRITICAL: Each text element appears EXACTLY ONCE. No duplicates.
 CREATE: An advertisement so visually striking it would trend on social media and make ${brandName} look like the #1 brand in ${industryLabel}.`;
   }
   
+  // Add explicit aspect ratio instruction to the prompt
+  const aspectRatioInstruction = `\n\n⚠️ IMAGE DIMENSIONS — MANDATORY:\n- Generate this image at EXACTLY ${width}x${height} pixels (${aspectRatio} aspect ratio)\n- ${aspectRatio === '1:1' ? 'This MUST be a PERFECT SQUARE image — equal width and height. NOT wide, NOT tall.' : aspectRatio === '4:5' ? 'This MUST be a PORTRAIT (vertical) image — taller than wide.' : aspectRatio === '9:16' ? 'This MUST be a TALL VERTICAL image — much taller than wide, like a phone screen.' : 'This MUST be a WIDE LANDSCAPE image — much wider than tall.'}\n- DO NOT generate a wide/landscape image if the ratio is 1:1 or vertical`;
+  
+  textPrompt += aspectRatioInstruction;
+
   // Add text prompt to parts
   parts.push({ text: textPrompt });
   
@@ -599,7 +635,8 @@ export async function generateAdsWithoutStorage(
   aspectRatio: AspectRatio = '1:1',
   brandAssets?: BrandAssets,
   industry?: string,
-  niche?: string
+  niche?: string,
+  adCopyPoints?: string
 ): Promise<GeneratedAd[]> {
   // Check if we should use mock mode (no API key)
   if (!process.env.GEMINI_API_KEY) {
@@ -628,7 +665,8 @@ export async function generateAdsWithoutStorage(
         aspectRatio,
         brandAssets,
         industry,
-        niche
+        niche,
+        adCopyPoints
       );
 
       // Return as base64 data URL

@@ -64,6 +64,7 @@ export interface BusinessDetails {
   productType: ProductType;
   brandSlogan?: string;
   pricingInfo?: string;
+  adCopyPoints?: string;
   aspectRatio?: AspectRatio;
   brandAssets?: BrandAssets;
 }
@@ -108,6 +109,7 @@ export interface CreateAdsRequest {
   brandName: string;
   slogan?: string;
   pricing?: string;
+  adCopyPoints?: string;
   productType: ProductType;
   industry?: string;
   niche?: string;

@@ -332,6 +332,10 @@ Product/Service: ${details.niche}
 Product Type: ${details.productType} (${details.productType === 'physical' ? 'tangible product you can hold/see' : details.productType === 'digital' ? 'software/app/digital tool' : 'service business'})
 ${details.brandSlogan ? `Brand Slogan: "${details.brandSlogan}"` : 'No slogan provided'}
 ${details.pricingInfo ? `Pricing: "${details.pricingInfo}"` : 'No pricing provided'}
+${details.adCopyPoints ? `
+KEY SELLING POINTS (user wants these displayed on the ad):
+${details.adCopyPoints}
+→ These must appear as VISIBLE TEXT on the final ad. Plan visual concepts with enough layout space to showcase these as beautifully designed elements alongside the hero visual.` : ''}
 ${platformContext}
 ${seasonalContext}
 
@@ -544,6 +548,10 @@ Niche: ${details.niche}
 Product Type: ${details.productType}
 ${details.brandSlogan ? `Slogan: "${details.brandSlogan}"` : 'No slogan'}
 ${details.pricingInfo ? `Pricing: "${details.pricingInfo}"` : 'No pricing'}
+${details.adCopyPoints ? `
+KEY SELLING POINTS (must appear as designed elements on the ad):
+${details.adCopyPoints}
+→ Your expanded prompts MUST instruct the image generator to include these as beautifully DESIGNED visual elements on the ad — NOT as a plain text list. Describe a premium presentation style (feature cards, elegant panels, icon-paired labels, etc.) that integrates naturally into the ad composition.` : ''}
 
 ${productTypeGuidelines[details.productType]}
 

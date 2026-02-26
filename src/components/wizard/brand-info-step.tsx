@@ -5,21 +5,26 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, ArrowRight, Lightbulb } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Lightbulb, ListChecks } from 'lucide-react';
+import { ProductType } from '@/types';
 
 interface BrandInfoStepProps {
   businessName: string;
-  onSubmit: (slogan: string, pricing: string) => void;
+  productType: ProductType;
+  onSubmit: (slogan: string, pricing: string, adCopyPoints: string) => void;
   onBack: () => void;
 }
 
-export function BrandInfoStep({ businessName, onSubmit, onBack }: BrandInfoStepProps) {
+export function BrandInfoStep({ businessName, productType, onSubmit, onBack }: BrandInfoStepProps) {
   const [slogan, setSlogan] = useState('');
   const [pricing, setPricing] = useState('');
+  const [adCopyPoints, setAdCopyPoints] = useState('');
+
+  const showAdCopyPoints = productType === 'service' || productType === 'digital';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(slogan, pricing);
+    onSubmit(slogan, pricing, adCopyPoints);
   };
 
   return (
@@ -69,6 +74,39 @@ export function BrandInfoStep({ businessName, onSubmit, onBack }: BrandInfoStepP
             Include currency and any context (e.g., &quot;Starting at&quot;, &quot;Only&quot;, &quot;From&quot;).
           </p>
         </div>
+
+        {/* Ad Copy Points — only for Service & Digital products */}
+        {showAdCopyPoints && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <ListChecks className="h-4 w-4 text-purple-500" />
+              <Label htmlFor="adCopyPoints">Key Selling Points for Ad (Optional)</Label>
+            </div>
+            <Textarea
+              id="adCopyPoints"
+              placeholder={productType === 'service' 
+                ? `e.g.,\nLive interactive sessions\nFlexible scheduling from anywhere\nExpert certified instructors\nFree consultation available`
+                : `e.g.,\nCreate invoices in 30 seconds\nAuto payment reminders\nMulti-currency support\nFree forever plan available`
+              }
+              value={adCopyPoints}
+              onChange={(e) => setAdCopyPoints(e.target.value)}
+              rows={5}
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              List key features, benefits, or bullet points you want displayed on the ad. 
+              {productType === 'service' 
+                ? ' Great for highlighting what makes your service unique — these will appear as text overlay on your ad.'
+                : ' Perfect for showcasing your product features — these will appear as text overlay on your ad.'
+              }
+            </p>
+            <div className="bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900 rounded-lg p-3">
+              <p className="text-xs text-purple-700 dark:text-purple-300">
+                💡 <strong>Works best with 3-5 short bullet points.</strong> The AI will arrange them beautifully in your ad alongside your slogan and branding.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-3">

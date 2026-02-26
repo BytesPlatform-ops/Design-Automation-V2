@@ -44,7 +44,8 @@ export async function POST(request: NextRequest) {
       body.aspectRatio || '1:1',
       body.brandAssets,
       body.industry,
-      body.niche
+      body.niche,
+      body.adCopyPoints
     );
 
     // Save campaign to database (non-blocking - continue even if fails)
