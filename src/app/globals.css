@@ -7,8 +7,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-inter);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-jb-mono);
+  --font-display: var(--font-outfit);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -158,4 +159,450 @@
     @apply bg-background text-foreground;
     @apply bg-background text-foreground;
   }
+}
+
+/* ========================================
+   LANDING PAGE DESIGN SYSTEM
+   ======================================== */
+
+:root {
+  /* Accent — Electric Blue */
+  --lp-accent: #3B9EFF;
+  --lp-accent-dim: #2B7DD4;
+  --lp-accent-light: #B8D9FF;
+  --lp-accent-glow: rgba(59, 158, 255, 0.15);
+  --lp-accent-glow-hard: rgba(59, 158, 255, 0.40);
+  --lp-accent-surface: rgba(59, 158, 255, 0.08);
+
+  /* Backgrounds */
+  --lp-bg-dark: #060609;
+  --lp-bg-dark-2: #0C0C14;
+  --lp-bg-dark-3: #111120;
+  --lp-bg-light: #F6F5F1;
+  --lp-bg-light-2: #EDECE8;
+
+  /* Text */
+  --lp-text-primary-dark: #ECEAF4;
+  --lp-text-muted-dark: #5F5F75;
+  --lp-text-ghost: rgba(236, 234, 244, 0.09);
+  --lp-text-primary-light: #0E0E18;
+  --lp-text-muted-light: #707088;
+
+  /* Borders */
+  --lp-border-dark: rgba(255, 255, 255, 0.06);
+  --lp-border-dark-hover: rgba(59, 158, 255, 0.35);
+  --lp-border-light: rgba(0, 0, 0, 0.07);
+
+  /* Radii */
+  --lp-radius-section: 40px;
+  --lp-radius-card: 18px;
+  --lp-radius-btn: 10px;
+  --lp-radius-tag: 100px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: #07070B; }
+::-webkit-scrollbar-thumb { background: #3B9EFF; border-radius: 2px; }
+
+/* Selection */
+::selection { background: #3B9EFF; color: #fff; }
+
+/* Smooth scroll */
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
+body {
+  overflow-x: hidden;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --- Keyframes --- */
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.75); }
+}@keyframes progress-fill {
+  0% { width: 0; }
+  50% { width: 100%; }
+  100% { width: 100%; }
+}
+@keyframes shimmer-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(150%); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { text-shadow: 0 0 40px rgba(59, 158, 255, 0.3); }
+  50% { text-shadow: 0 0 80px rgba(59, 158, 255, 0.5); }
+}
+
+/* --- Scroll Animations — Card Stacking System ---
+ * Each section "cards over" the previous via:
+ *   1. border-radius: 40px 40px 0 0 — ONLY top corners rounded (card-edge look)
+ *   2. margin-top: -40px            — overlaps previous section slightly
+ *   3. ascending z-index            — dark slides OVER, light revealed FROM BELOW
+ * The browser's native scroll does all the work. Zero JS for the color switch.
+ */
+
+[data-animate] {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+[data-animate].is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Stagger children within a section — 110ms apart */
+.lp-section [data-animate]:nth-child(1) { transition-delay: 0ms; }
+.lp-section [data-animate]:nth-child(2) { transition-delay: 110ms; }
+.lp-section [data-animate]:nth-child(3) { transition-delay: 220ms; }
+.lp-section [data-animate]:nth-child(4) { transition-delay: 330ms; }
+.lp-section [data-animate]:nth-child(5) { transition-delay: 440ms; }
+.lp-section [data-animate]:nth-child(6) { transition-delay: 550ms; }
+
+/* --- Section Base — Card Stack --- */
+.lp-section {
+  position: relative;
+  border-radius: 40px 40px 0 0;   /* ONLY top corners — creates the card edge */
+  margin-top: -40px;               /* Overlap previous section */
+  padding-top: 120px;              /* Compensate for overlap */
+  padding-bottom: 120px;
+  overflow: hidden;
+}
+
+/* Box shadow for card-edge depth on entering sections */
+.lp-section:not(:first-of-type).lp-section-dark {
+  box-shadow:
+    0 -2px 0 0 rgba(255,255,255,0.04),
+    0 -40px 80px rgba(0,0,0,0.3);
+}
+.lp-section:not(:first-of-type).lp-section-light {
+  box-shadow:
+    0 -2px 0 0 rgba(0,0,0,0.06),
+    0 -40px 60px rgba(0,0,0,0.15);
+}
+
+/* First section (hero) — no rounding, no overlap */
+.lp-section:first-of-type {
+  margin-top: 0;
+  border-radius: 0;
+  padding-top: 0;  /* Hero keeps its own padding */
+  box-shadow: none;
+}
+
+/* Z-index stacking — each section sits ON TOP of the previous one */
+.landing-page > .lp-section:nth-of-type(1) { z-index: 1; }
+.landing-page > .lp-section:nth-of-type(2) { z-index: 2; }
+.landing-page > .lp-section:nth-of-type(3) { z-index: 3; }
+.landing-page > .lp-section:nth-of-type(4) { z-index: 4; }
+.landing-page > .lp-section:nth-of-type(5) { z-index: 5; }
+.landing-page > .lp-section:nth-of-type(6) { z-index: 6; }
+.landing-page > .lp-section:nth-of-type(7) { z-index: 7; }
+.landing-page > .lp-section:nth-of-type(8) { z-index: 8; }
+.landing-page > .lp-section:nth-of-type(9) { z-index: 9; }
+.landing-page > footer { z-index: 10; position: relative; }
+
+.lp-section-dark  { background: #07070B; }
+.lp-section-light { background: #F4F3EF; }
+
+@media (max-width: 768px) {
+  .lp-section {
+    border-radius: 28px 28px 0 0;
+    margin-top: -28px;
+    padding-top: 90px;
+    padding-bottom: 80px;
+  }
+  .lp-section:first-of-type {
+    padding-top: 0;
+  }
+}
+
+/* --- Section Label --- */
+.lp-label {
+  color: var(--lp-accent);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 500;
+  margin-bottom: 20px;
+}
+
+/* --- CTA Primary Button --- */
+.cta-primary {
+  background: var(--lp-accent);
+  color: #fff;
+  border-radius: var(--lp-radius-btn);
+  padding: 13px 28px;
+  font-weight: 600;
+  font-size: 15px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.3s ease;
+  cursor: pointer;
+  border: none;
+  text-decoration: none;
+}
+.cta-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px var(--lp-accent-glow-hard), 0 0 0 1px var(--lp-accent);
+}
+.cta-primary::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.3) 50%, transparent 65%);
+  transform: translateX(-100%);
+  transition: none;
+}
+.cta-primary:hover::after {
+  animation: shimmer-sweep 0.55s ease forwards;
+}
+
+/* --- CTA Ghost Button --- */
+.cta-ghost {
+  background: transparent;
+  border: 1px solid var(--lp-border-dark);
+  color: var(--lp-text-primary-dark);
+  border-radius: var(--lp-radius-btn);
+  padding: 13px 28px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  text-decoration: none;
+}
+.cta-ghost:hover {
+  border-color: var(--lp-accent);
+  color: var(--lp-accent);
+}
+
+/* --- Feature Card (Dark) --- */
+.feature-card {
+  background: var(--lp-bg-dark-2);
+  border: 1px solid var(--lp-border-dark);
+  border-radius: var(--lp-radius-card);
+  padding: 28px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  height: 1px; width: 0;
+  background: linear-gradient(90deg, var(--lp-accent), transparent);
+  transition: width 0.4s ease;
+}
+.feature-card:hover {
+  border-color: var(--lp-border-dark-hover);
+  box-shadow: 0 0 0 1px var(--lp-accent-glow), inset 0 0 40px var(--lp-accent-surface);
+  transform: translateY(-4px);
+}
+.feature-card:hover::before {
+  width: 100%;
+}
+
+/* --- Bento Card (Light) --- */
+.bento-card {
+  background: #FFFFFF;
+  border: 1px solid rgba(0,0,0,0.07);
+  border-radius: 18px;
+  padding: 28px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.bento-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 0;
+  background: linear-gradient(90deg, #3B9EFF, transparent);
+  transition: width 0.4s ease;
+}
+.bento-card:hover {
+  transform: translateY(-5px);
+  border-color: rgba(59,158,255,0.25);
+  box-shadow: 0 20px 40px rgba(0,0,0,0.08);
+}
+.bento-card:hover::before {
+  width: 100%;
+}
+/* First card spans 2 columns */
+.bento-card:first-child {
+  grid-column: span 2;
+  padding: 36px;
+}
+.bento-card:first-child .feature-icon-light {
+  width: 52px;
+  height: 52px;
+}
+.bento-card:first-child .feature-icon-light svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* --- Feature Icon Box --- */
+.feature-icon {
+  width: 40px; height: 40px;
+  background: var(--lp-accent-surface);
+  border: 1px solid rgba(59,158,255,0.20);
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--lp-accent);
+  flex-shrink: 0;
+}
+
+/* --- Feature Icon Box (Light variant) --- */
+.feature-icon-light {
+  width: 44px; height: 44px;
+  background: rgba(59,158,255,0.10);
+  border: 1px solid rgba(59,158,255,0.20);
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: var(--lp-accent);
+  flex-shrink: 0;
+  margin-bottom: 20px;
+}
+
+/* --- Pricing Card --- */
+.pricing-card {
+  background: var(--lp-bg-light-2);
+  border: 1px solid var(--lp-border-light);
+  border-radius: var(--lp-radius-card);
+  padding: 32px;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+}
+.pricing-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 24px 48px rgba(0,0,0,0.08);
+}
+.pricing-card-popular {
+  background: var(--lp-bg-dark-2);
+  border: 1px solid var(--lp-accent);
+  box-shadow: 0 0 60px var(--lp-accent-glow);
+  transform: scale(1.04);
+  color: var(--lp-text-primary-dark);
+}
+.pricing-card-popular:hover {
+  transform: scale(1.04) translateY(-6px);
+  box-shadow: 0 0 60px var(--lp-accent-glow), 0 24px 48px rgba(0,0,0,0.35);
+}
+
+/* --- Testimonial Card --- */
+.testimonial-card {
+  background: var(--lp-bg-dark-2);
+  border: 1px solid var(--lp-border-dark);
+  border-radius: var(--lp-radius-card);
+  padding: 28px;
+  position: relative;
+  border-left: 3px solid var(--lp-accent);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+.testimonial-card::before {
+  content: '"';
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-size: 72px;
+  line-height: 1;
+  color: rgba(59,158,255,0.06);
+  font-family: Georgia, serif;
+  pointer-events: none;
+}
+.testimonial-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--lp-border-dark-hover);
+  border-left-color: var(--lp-accent);
+}
+
+/* --- Pricing Toggle --- */
+.pricing-toggle {
+  display: inline-flex;
+  background: var(--lp-bg-light-2);
+  border: 1px solid var(--lp-border-light);
+  border-radius: 10px;
+  padding: 4px;
+  gap: 2px;
+}
+.pricing-toggle-btn {
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--lp-text-muted-light);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pricing-toggle-btn.active {
+  background: var(--lp-accent);
+  color: #fff;
+}
+
+/* --- Walkthrough Step --- */
+.walkthrough-step {
+  padding: 24px 0 24px 24px;
+  border-left: 2px solid var(--lp-border-dark);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  opacity: 0.35;
+  transform: translateX(-8px);
+  cursor: pointer;
+}
+.walkthrough-step.active {
+  border-left-color: var(--lp-accent);
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* --- Sticky panel (desktop only) --- */
+@media (min-width: 769px) {
+  .sticky-panel {
+    position: sticky;
+    top: 18vh;
+  }
+}
+
+/* --- Mobile overrides --- */
+@media (max-width: 768px) {
+  .sticky-panel { position: static; }
+  .pricing-card-popular { transform: scale(1); }
+  .pricing-card-popular:hover { transform: translateY(-6px); }
+  .pricing-cards-grid { flex-direction: column !important; }
+  .bento-grid { grid-template-columns: 1fr !important; }
+  .walkthrough-grid { grid-template-columns: 1fr !important; }
+  .stats-grid { grid-template-columns: 1fr 1fr !important; }
+}
+
+/* --- Focus visible --- */
+.landing-page :focus-visible {
+  outline: 2px solid var(--lp-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
 }

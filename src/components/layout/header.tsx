@@ -1,10 +1,14 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Sparkles } from 'lucide-react';
 
 export function Header() {
+  const pathname = usePathname();
+  if (pathname === '/') return null;
+
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 md:h-16 items-center justify-between px-4">
