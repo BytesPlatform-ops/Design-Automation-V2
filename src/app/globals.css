@@ -375,19 +375,19 @@ body {
 }
 .cta-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 32px var(--lp-accent-glow-hard), 0 0 0 1px var(--lp-accent);
+  box-shadow: 0 8px 30px rgba(59,158,255,0.45),
+              0 0 60px rgba(59,158,255,0.15);
 }
 .cta-primary::after {
   content: '';
   position: absolute;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.3) 50%, transparent 65%);
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.28) 50%, transparent 65%);
   transform: translateX(-100%);
-  transition: none;
+  transition: transform 0.6s ease;
 }
 .cta-primary:hover::after {
-  animation: shimmer-sweep 0.55s ease forwards;
+  transform: translateX(150%);
 }
 
 /* --- CTA Ghost Button --- */
@@ -422,14 +422,15 @@ body {
   content: '';
   position: absolute;
   top: 0; left: 0;
-  height: 1px; width: 0;
+  height: 2px; width: 0;
   background: linear-gradient(90deg, var(--lp-accent), transparent);
-  transition: width 0.4s ease;
+  transition: width 0.5s ease;
 }
 .feature-card:hover {
-  border-color: var(--lp-border-dark-hover);
-  box-shadow: 0 0 0 1px var(--lp-accent-glow), inset 0 0 40px var(--lp-accent-surface);
-  transform: translateY(-4px);
+  transform: translateY(-7px);
+  border-color: rgba(59,158,255,0.3);
+  box-shadow: 0 24px 48px rgba(0,0,0,0.15),
+              inset 0 0 40px rgba(59,158,255,0.04);
 }
 .feature-card:hover::before {
   width: 100%;
@@ -543,13 +544,13 @@ body {
   overflow: hidden;
 }
 .testimonial-card::before {
-  content: '"';
+  content: '\201C';
   position: absolute;
-  top: 12px;
+  top: 8px;
   right: 16px;
-  font-size: 72px;
+  font-size: 80px;
   line-height: 1;
-  color: rgba(59,158,255,0.06);
+  color: rgba(59,158,255,0.07);
   font-family: Georgia, serif;
   pointer-events: none;
 }
@@ -677,15 +678,190 @@ body {
   }
 }
 
+/* --- Small phones (iPhone SE, etc) --- */
+@media (max-width: 390px) {
+  .lp-section:first-of-type h1 {
+    font-size: clamp(28px, 8vw, 38px) !important;
+  }
+  .stats-grid .font-display {
+    font-size: clamp(24px, 7vw, 32px) !important;
+  }
+}
+
+/* --- Tablet portrait mode --- */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .lp-section {
+    padding-top: 100px !important;
+    padding-bottom: 100px !important;
+  }
+  .bento-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .bento-card:first-child {
+    grid-column: span 2 !important;
+  }
+  .stats-grid {
+    grid-template-columns: repeat(4, 1fr) !important;
+  }
+  .stats-grid .font-display {
+    font-size: clamp(40px, 5vw, 60px) !important;
+  }
+}
+
 /* --- Mobile overrides --- */
 @media (max-width: 768px) {
-  .sticky-panel { position: static; }
+  /* General layout fixes */
+  .sticky-panel { position: static !important; }
   .pricing-card-popular { transform: scale(1); }
   .pricing-card-popular:hover { transform: translateY(-6px); }
   .pricing-cards-grid { flex-direction: column !important; }
   .bento-grid { grid-template-columns: 1fr !important; }
   .walkthrough-grid { grid-template-columns: 1fr !important; }
-  .stats-grid { grid-template-columns: 1fr 1fr !important; }
+
+  /* --- FIX 1: Hero mobile layout --- */
+  .lp-section:first-of-type {
+    padding-top: 60px !important;
+    padding-bottom: 40px !important;
+    min-height: auto !important;
+  }
+  .lp-section:first-of-type h1 {
+    font-size: clamp(32px, 9vw, 44px) !important;
+    line-height: 1.05 !important;
+    margin-bottom: 12px !important;
+  }
+  .lp-section:first-of-type h1 span {
+    font-size: inherit !important;
+  }
+  .lp-section:first-of-type .section-inner {
+    padding-top: 0;
+  }
+  /* Tighten hero spacing */
+  .lp-section:first-of-type .mb-8 {
+    margin-bottom: 16px !important;
+  }
+  .lp-section:first-of-type .mb-6 {
+    margin-bottom: 12px !important;
+  }
+  .lp-section:first-of-type .mb-16 {
+    margin-bottom: 20px !important;
+  }
+  /* Hide dashboard mockup on mobile */
+  .lp-section:first-of-type .max-w-\[1000px\] {
+    display: none !important;
+  }
+
+  /* --- FIX 2: Hide cursor dot on mobile --- */
+  #cursor-dot {
+    display: none !important;
+  }
+
+  /* --- FIX 3: Stats grid 2x2 on mobile - FIXED overflow --- */
+  .stats-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 0 !important;
+    width: 100% !important;
+    overflow: hidden !important;
+  }
+  .stats-grid > div {
+    padding: 20px 12px !important;
+    border-right: none !important;
+    text-align: center !important;
+    overflow: hidden !important;
+  }
+  .stats-grid > div:nth-child(1),
+  .stats-grid > div:nth-child(2) {
+    border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+  }
+  .stats-grid > div:nth-child(1),
+  .stats-grid > div:nth-child(3) {
+    border-right: 1px solid rgba(255,255,255,0.08) !important;
+  }
+  .stats-grid .font-display {
+    font-size: clamp(28px, 8vw, 40px) !important;
+  }
+
+  /* --- FIX 4: Testimonials stack vertically on mobile --- */
+  .testimonials-outer {
+    overflow: visible !important;
+    mask-image: none !important;
+    -webkit-mask-image: none !important;
+  }
+  .testimonials-track {
+    animation: none !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    gap: 16px !important;
+  }
+  .testimonial-card {
+    min-width: unset !important;
+    width: 100% !important;
+    flex-shrink: unset !important;
+  }
+  /* Hide duplicate testimonials on mobile */
+  .testimonials-track .testimonial-card:nth-child(n+4) {
+    display: none !important;
+  }
+
+  /* --- FIX 5: Bento card span fix on mobile --- */
+  .bento-card:first-child {
+    grid-column: span 1 !important;
+    padding: 24px !important;
+  }
+  .bento-card {
+    padding: 20px !important;
+  }
+
+  /* --- FIX 6: Trust logos marquee on mobile --- */
+  .marquee-wrap {
+    overflow: hidden !important;
+    mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent) !important;
+    -webkit-mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent) !important;
+  }
+  .marquee-track {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    gap: 48px !important;
+    width: max-content !important;
+    animation: marquee 18s linear infinite !important;
+  }
+
+  /* --- FIX 7: How It Works - hide step panels on mobile, show all steps --- */
+  .walkthrough-grid {
+    display: block !important;
+  }
+  .walkthrough-grid > div:last-child {
+    display: none !important;
+  }
+
+  /* --- FIX 8: CTA orbs scale down on mobile --- */
+  .lp-section:last-of-type > div[style*="800px"],
+  .lp-section:last-of-type > div[style*="700px"] {
+    width: 320px !important;
+    height: 240px !important;
+  }
+  .lp-section:last-of-type > div[style*="400px"] {
+    width: 200px !important;
+    height: 150px !important;
+  }
+
+  /* --- FIX 9: Section card-stack smaller radius on mobile --- */
+  .lp-section:not(:first-of-type) {
+    border-radius: 24px 24px 0 0 !important;
+    margin-top: -24px !important;
+    padding-top: 72px !important;
+    padding-bottom: 72px !important;
+  }
+
+  /* --- FIX 10: Disable heavy animations on mobile --- */
+  #hero-canvas {
+    display: none !important;
+  }
+  .section-inner {
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
 
 /* --- Focus visible --- */
@@ -693,4 +869,17 @@ body {
   outline: 2px solid var(--lp-accent);
   outline-offset: 3px;
   border-radius: 4px;
+}
+
+/* --- Testimonial Avatar Gradient --- */
+.testimonial-avatar {
+  background: linear-gradient(135deg, #3B9EFF, #1a5fa8) !important;
+  color: white;
+  font-weight: 600;
+}
+
+/* --- Stats Section Dot Grid --- */
+.stats-section {
+  background-image: radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 28px 28px;
 }

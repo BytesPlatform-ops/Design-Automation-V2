@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { gsap } from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import {
   Sparkles,
   ArrowRight,
@@ -21,6 +23,11 @@ import {
   X,
 } from 'lucide-react';
 
+// Register GSAP plugins
+if (typeof window !== 'undefined') {
+  gsap.registerPlugin(ScrollTrigger);
+}
+
 /* ─────────────── LANDING NAV ─────────────── */
 function LandingNav() {
   const [scrolled, setScrolled] = useState(false);
@@ -28,42 +35,40 @@ function LandingNav() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 80);
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
+    function updateNavbar() {
+      const scrollY = window.scrollY;
+      setScrolled(scrollY > 60);
 
-  // Detect when nav overlaps light sections
-  useEffect(() => {
-    const lightSections = document.querySelectorAll('.lp-section-light');
-    const obs = new IntersectionObserver(
-      (entries) => {
-        // Check if any light section is intersecting at the top of viewport
-        const anyLight = entries.some((e) => {
-          if (!e.isIntersecting) return false;
-          const rect = e.boundingClientRect;
-          return rect.top <= 80 && rect.bottom > 80;
-        });
-        setOnLight(anyLight);
-      },
-      { threshold: [0, 0.1, 0.5, 1], rootMargin: '-80px 0px -80% 0px' }
-    );
-    lightSections.forEach((s) => obs.observe(s));
-    return () => obs.disconnect();
+      // Check if navbar (top 70px of viewport) overlaps any light section
+      const lightSections = document.querySelectorAll('.lp-section-light');
+      let overLight = false;
+      lightSections.forEach((section) => {
+        const rect = section.getBoundingClientRect();
+        // Navbar is ~70px tall — check if it's inside this section
+        if (rect.top <= 70 && rect.bottom >= 0) {
+          overLight = true;
+        }
+      });
+      setOnLight(overLight);
+    }
+
+    window.addEventListener('scroll', updateNavbar, { passive: true });
+    updateNavbar(); // run on mount
+    return () => window.removeEventListener('scroll', updateNavbar);
   }, []);
 
   const navBg = !scrolled
     ? 'transparent'
     : onLight
-    ? 'rgba(244, 243, 239, 0.88)'
-    : 'rgba(7, 7, 11, 0.82)';
+    ? 'rgba(244, 243, 239, 0.92)'
+    : 'rgba(7, 7, 11, 0.85)';
   const navBorder = !scrolled
     ? '1px solid transparent'
     : onLight
-    ? '1px solid rgba(0,0,0,0.07)'
+    ? '1px solid rgba(0,0,0,0.08)'
     : '1px solid rgba(255,255,255,0.07)';
-  const linkColor = onLight && scrolled ? '#0C0C12' : '#5F5F75';
-  const logoColor = onLight && scrolled ? '#0C0C12' : '#ECEAF4';
+  const linkColor = onLight ? '#0C0C12' : '#ECEAF4';
+  const logoColor = onLight ? '#0C0C12' : '#ECEAF4';
 
   return (
     <nav
@@ -187,7 +192,7 @@ function StatCounter({
           observer.unobserve(el);
         }
       },
-      { threshold: 0.3 }
+      { threshold: 0.1, rootMargin: '0px 0px -50px 0px' }
     );
     observer.observe(el);
     return () => observer.disconnect();
@@ -301,6 +306,147 @@ function CursorDot() {
         mixBlendMode: 'screen',
         transition: 'width 0.2s, height 0.2s, opacity 0.2s',
         willChange: 'transform',
+      }}
+    />
+  );
+}
+
+/* ─────────────── HERO CANVAS PARTICLES ─────────────── */
+function HeroCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    // Skip particle animation on mobile for performance
+    if (window.innerWidth <= 768) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set canvas size
+    const setSize = () => {
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+    };
+    setSize();
+
+    const PARTICLE_COUNT = 80;
+    const particles: Array<{
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      radius: number;
+      opacity: number;
+    }> = [];
+    const mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+
+    // Track mouse
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = e.clientX - rect.left;
+      mouse.y = e.clientY - rect.top;
+    };
+    canvas.parentElement?.addEventListener('mousemove', handleMouseMove);
+
+    // Create particles
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      particles.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: (Math.random() - 0.5) * 0.3,
+        radius: Math.random() * 1.5 + 0.5,
+        opacity: Math.random() * 0.5 + 0.1,
+      });
+    }
+
+    let animId: number;
+    function drawParticles() {
+      if (!ctx || !canvas) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      particles.forEach((p) => {
+        // Subtle mouse attraction
+        const dx = mouse.x - p.x;
+        const dy = mouse.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 200) {
+          p.vx += (dx / dist) * 0.008;
+          p.vy += (dy / dist) * 0.008;
+        }
+
+        // Speed limit
+        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+        if (speed > 0.8) {
+          p.vx *= 0.95;
+          p.vy *= 0.95;
+        }
+
+        p.x += p.vx;
+        p.y += p.vy;
+
+        // Wrap around edges
+        if (p.x < 0) p.x = canvas.width;
+        if (p.x > canvas.width) p.x = 0;
+        if (p.y < 0) p.y = canvas.height;
+        if (p.y > canvas.height) p.y = 0;
+
+        // Draw dot
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(59, 158, 255, ${p.opacity})`;
+        ctx.fill();
+      });
+
+      // Draw connecting lines between nearby particles
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 100) {
+            ctx.beginPath();
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.strokeStyle = `rgba(59, 158, 255, ${0.12 * (1 - dist / 100)})`;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+          }
+        }
+      }
+
+      animId = requestAnimationFrame(drawParticles);
+    }
+    drawParticles();
+
+    // Resize handler
+    const handleResize = () => {
+      setSize();
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener('resize', handleResize);
+      canvas.parentElement?.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      id="hero-canvas"
+      style={{
+        position: 'absolute',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 0,
+        opacity: 0.5,
       }}
     />
   );
@@ -496,6 +642,61 @@ export default function Home() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  /* GSAP ScrollTrigger animations */
+  useEffect(() => {
+    // Feature/Bento cards — stagger in from below
+    const bentoCards = document.querySelectorAll('.bento-card');
+    if (bentoCards.length > 0) {
+      gsap.fromTo(
+        bentoCards,
+        { opacity: 0, y: 50, scale: 0.95 },
+        {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          duration: 0.7,
+          ease: 'power3.out',
+          stagger: 0.1,
+          scrollTrigger: {
+            trigger: '.bento-grid',
+            start: 'top 80%',
+          },
+        }
+      );
+    }
+
+    // Magnetic button effect
+    const magneticButtons = document.querySelectorAll('.cta-primary, .cta-ghost');
+    magneticButtons.forEach((btn) => {
+      const handleMouseMove = (e: Event) => {
+        const mouseEvent = e as MouseEvent;
+        const rect = (btn as HTMLElement).getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const deltaX = (mouseEvent.clientX - centerX) * 0.25;
+        const deltaY = (mouseEvent.clientY - centerY) * 0.25;
+
+        gsap.to(btn, {
+          x: deltaX,
+          y: deltaY,
+          duration: 0.3,
+          ease: 'power2.out',
+        });
+      };
+
+      const handleMouseLeave = () => {
+        gsap.to(btn, { x: 0, y: 0, duration: 0.5, ease: 'elastic.out(1, 0.4)' });
+      };
+
+      btn.addEventListener('mousemove', handleMouseMove);
+      btn.addEventListener('mouseleave', handleMouseLeave);
+    });
+
+    return () => {
+      ScrollTrigger.getAll().forEach((t) => t.kill());
+    };
+  }, []);
+
   /* walkthrough active step */
   useEffect(() => {
     const obs = new IntersectionObserver(
@@ -527,6 +728,9 @@ export default function Home() {
           paddingBottom: 0,
         }}
       >
+        {/* Particle canvas background */}
+        <HeroCanvas />
+        
         {/* Dot grid background */}
         <div
           className="absolute inset-0 pointer-events-none"
