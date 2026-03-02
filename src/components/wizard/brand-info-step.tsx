@@ -32,8 +32,8 @@ export function BrandInfoStep({ businessName, productType, onSubmit, onBack }: B
       <div className="space-y-2">
         <h2 className="text-2xl font-bold">Brand Details for {businessName}</h2>
         <p className="text-muted-foreground">
-          Add your slogan and pricing to embed in your ads. These are optional - 
-          our AI can generate compelling text if you skip.
+          Add your slogan and pricing to embed in your ads. These are optional — 
+          compelling text will be generated automatically if you skip.
         </p>
       </div>
 
@@ -102,7 +102,7 @@ export function BrandInfoStep({ businessName, productType, onSubmit, onBack }: B
             </p>
             <div className="bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900 rounded-lg p-3">
               <p className="text-xs text-purple-700 dark:text-purple-300">
-                💡 <strong>Works best with 3-5 short bullet points.</strong> The AI will arrange them beautifully in your ad alongside your slogan and branding.
+                💡 <strong>Works best with 3-5 short bullet points.</strong> They'll be arranged beautifully in your ad alongside your slogan and branding.
               </p>
             </div>
           </div>

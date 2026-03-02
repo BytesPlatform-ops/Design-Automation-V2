@@ -89,7 +89,7 @@ export function AdEditPanel({
       <div className="mb-4">
         <h3 className="text-lg font-semibold text-gray-900">Edit This Ad</h3>
         <p className="mt-1 text-sm text-gray-600">
-          Tell Gemini what changes you want. It remembers your brand context and will edit intelligently.
+          Describe the changes you want. Your brand context is remembered and edits are applied intelligently.
         </p>
       </div>
 
@@ -114,7 +114,7 @@ export function AdEditPanel({
                 Editing...
               </>
             ) : (
-              'Edit Ad with AI'
+              'Apply Edit'
             )}
           </Button>
         </div>

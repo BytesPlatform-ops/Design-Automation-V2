@@ -78,7 +78,7 @@ export function SelectIdeasStep({ ideas, isLoading, onSubmit, onBack }: SelectId
           <div>
             <p className="font-medium">Analyzing Your Business</p>
             <p className="text-sm text-muted-foreground">
-              Our AI is researching market trends and crafting campaign ideas...
+              Researching market trends and crafting campaign ideas...
             </p>
           </div>
         </div>

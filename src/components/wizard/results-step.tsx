@@ -311,7 +311,7 @@ export function ResultsStep({ ads: initialAds, onStartOver, aspectRatio = '1:1',
               {showPromptId === ad.id && (
                 <div className="bg-muted rounded-lg p-3 text-xs text-muted-foreground">
                   <div className="flex justify-between items-start gap-2 mb-2">
-                    <span className="font-medium text-foreground">AI Prompt Used:</span>
+                    <span className="font-medium text-foreground">Generation Prompt:</span>
                     <Button 
                       variant="ghost" 
                       size="sm" 
@@ -401,7 +401,7 @@ export function ResultsStep({ ads: initialAds, onStartOver, aspectRatio = '1:1',
                 onClick={() => setEditingAdId(editingAdId === ad.id ? null : ad.id)}
               >
                 <Sparkles className="mr-2 h-4 w-4" />
-                {editingAdId === ad.id ? 'Close Editor' : 'Edit with AI'}
+                {editingAdId === ad.id ? 'Close Editor' : 'Edit Ad'}
               </Button>
             </div>
           </div>

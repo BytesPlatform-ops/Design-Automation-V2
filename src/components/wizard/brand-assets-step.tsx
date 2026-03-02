@@ -242,7 +242,7 @@ export function BrandAssetsStep({ productType, businessName, onSubmit, onBack, o
             onClick={() => setColorMode('ai')}
           >
             <Sparkles className="h-4 w-4 text-primary" />
-            Let AI Decide
+            Auto Select
             <span className="text-xs text-muted-foreground">(Recommended)</span>
           </button>
           <button
@@ -264,7 +264,7 @@ export function BrandAssetsStep({ productType, businessName, onSubmit, onBack, o
 
         {colorMode === 'ai' && (
           <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900 rounded-lg p-3 text-sm text-green-800 dark:text-green-200">
-            ✨ AI will analyze your brand, industry, and uploaded images to choose the perfect color palette automatically.
+            ✨ Our system will analyze your brand, industry, and uploaded images to choose the perfect color palette automatically.
           </div>
         )}
 
@@ -352,7 +352,7 @@ export function BrandAssetsStep({ productType, businessName, onSubmit, onBack, o
           <AlertCircle className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
           <div className="text-sm text-muted-foreground">
             <p className="font-medium">No images uploaded</p>
-            <p>AI will generate creative visuals based on your description. For best results, upload your actual product/logo.</p>
+            <p>Creative visuals will be generated based on your description. For best results, upload your actual product/logo.</p>
           </div>
         </div>
       )}
