@@ -55,8 +55,8 @@ function LandingNav() {
   const navBg = !scrolled
     ? 'transparent'
     : onLight
-    ? 'rgba(244, 243, 239, 0.90)'
-    : 'rgba(7, 7, 11, 0.85)';
+    ? 'rgba(244, 243, 239, 0.88)'
+    : 'rgba(7, 7, 11, 0.82)';
   const navBorder = !scrolled
     ? '1px solid transparent'
     : onLight
@@ -93,7 +93,7 @@ function LandingNav() {
             <a
               key={item}
               href={`#${item.toLowerCase()}`}
-              className="text-sm font-medium"
+              className="nav-link text-sm font-medium"
               style={{ color: linkColor, transition: 'color 0.35s ease' }}
             >
               {item}
@@ -211,6 +211,98 @@ function StatCounter({
       {count.toLocaleString()}
       {started && count >= target ? suffix : ''}
     </span>
+  );
+}
+
+/* ─────────────── CURSOR DOT ─────────────── */
+function CursorDot() {
+  const dotRef = useRef<HTMLDivElement>(null);
+  const pos = useRef({ x: 0, y: 0 });
+  const target = useRef({ x: 0, y: 0 });
+  const [mounted, setMounted] = useState(false);
+  const [isTouch, setIsTouch] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    // Check for touch device on mount
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    setIsTouch(isTouchDevice);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || isTouch) return;
+
+    const dot = dotRef.current;
+    if (!dot) return;
+
+    let animationId: number;
+    const onMouseMove = (e: MouseEvent) => {
+      target.current.x = e.clientX;
+      target.current.y = e.clientY;
+    };
+
+    const lerp = () => {
+      pos.current.x += (target.current.x - pos.current.x) * 0.12;
+      pos.current.y += (target.current.y - pos.current.y) * 0.12;
+      dot.style.left = `${pos.current.x - 4}px`;
+      dot.style.top = `${pos.current.y - 4}px`;
+      animationId = requestAnimationFrame(lerp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    animationId = requestAnimationFrame(lerp);
+
+    // Hover expansion
+    const interactiveEls = document.querySelectorAll('a, button');
+    const handleEnter = () => {
+      dot.style.width = '28px';
+      dot.style.height = '28px';
+      dot.style.opacity = '0.45';
+      dot.style.marginLeft = '-10px';
+      dot.style.marginTop = '-10px';
+    };
+    const handleLeave = () => {
+      dot.style.width = '8px';
+      dot.style.height = '8px';
+      dot.style.opacity = '1';
+      dot.style.marginLeft = '0';
+      dot.style.marginTop = '0';
+    };
+    interactiveEls.forEach((el) => {
+      el.addEventListener('mouseenter', handleEnter);
+      el.addEventListener('mouseleave', handleLeave);
+    });
+
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      cancelAnimationFrame(animationId);
+      interactiveEls.forEach((el) => {
+        el.removeEventListener('mouseenter', handleEnter);
+        el.removeEventListener('mouseleave', handleLeave);
+      });
+    };
+  }, [mounted, isTouch]);
+
+  // Don't render until mounted or on touch devices
+  if (!mounted || isTouch) return null;
+
+  return (
+    <div
+      ref={dotRef}
+      id="cursor-dot"
+      style={{
+        position: 'fixed',
+        pointerEvents: 'none',
+        zIndex: 9999,
+        width: '8px',
+        height: '8px',
+        borderRadius: '50%',
+        background: '#3B9EFF',
+        mixBlendMode: 'screen',
+        transition: 'width 0.2s, height 0.2s, opacity 0.2s',
+        willChange: 'transform',
+      }}
+    />
   );
 }
 
@@ -391,7 +483,7 @@ export default function Home() {
       { threshold: 0.15 }
     );
     document
-      .querySelectorAll('.lp-section')
+      .querySelectorAll('.lp-section:not(:first-of-type)')
       .forEach((s) => obs.observe(s));
     return () => obs.disconnect();
   }, []);
@@ -425,6 +517,7 @@ export default function Home() {
   return (
     <div className="landing-page">
       <LandingNav />
+      <CursorDot />
 
       {/* ═══ SECTION 1 · HERO — Dark ═══ */}
       <section
@@ -468,11 +561,10 @@ export default function Home() {
             zIndex: 0,
           }}
         />
-        <div className="section-content container mx-auto px-4 flex flex-col items-center text-center relative" style={{ zIndex: 1 }}>
+        <div className="section-inner container mx-auto px-4 flex flex-col items-center text-center relative" style={{ zIndex: 1 }}>
           {/* badge */}
           <div
-            data-animate
-            className="inline-flex items-center gap-2 mb-8"
+            className="hero-anim inline-flex items-center gap-2 mb-8"
             style={{
               background: 'rgba(59,158,255,0.08)',
               border: '1px solid rgba(59,158,255,0.25)',
@@ -480,6 +572,10 @@ export default function Home() {
               padding: '6px 14px 6px 10px',
               fontSize: '13px',
               color: '#3B9EFF',
+              opacity: heroLoaded ? 1 : 0,
+              transform: heroLoaded ? 'translateY(0)' : 'translateY(24px)',
+              transition: 'opacity 0.8s cubic-bezier(0.16,1,0.3,1), transform 0.8s cubic-bezier(0.16,1,0.3,1)',
+              transitionDelay: '0ms',
             }}
           >
             <span
@@ -504,8 +600,8 @@ export default function Home() {
             }}
           >
             {[
-              { text: 'Design manually.', color: 'rgba(236,234,244,0.09)', delay: '0ms' },
-              { text: 'Hire agencies.', color: 'rgba(236,234,244,0.28)', delay: '150ms' },
+              { text: 'Design manually.', color: 'rgba(236,234,244,0.09)', delay: '150ms' },
+              { text: 'Hire agencies.', color: 'rgba(236,234,244,0.28)', delay: '280ms' },
             ].map((line) => (
               <span
                 key={line.text}
@@ -514,7 +610,7 @@ export default function Home() {
                   color: line.color,
                   transform: heroLoaded ? 'translateY(0)' : 'translateY(24px)',
                   opacity: heroLoaded ? 1 : 0,
-                  transition: 'all 0.7s cubic-bezier(0.16,1,0.3,1)',
+                  transition: 'opacity 0.8s cubic-bezier(0.16,1,0.3,1), transform 0.8s cubic-bezier(0.16,1,0.3,1)',
                   transitionDelay: line.delay,
                 }}
               >
@@ -527,8 +623,8 @@ export default function Home() {
                 color: '#ECEAF4',
                 transform: heroLoaded ? 'translateY(0)' : 'translateY(24px)',
                 opacity: heroLoaded ? 1 : 0,
-                transition: 'all 0.7s cubic-bezier(0.16,1,0.3,1)',
-                transitionDelay: '300ms',
+                transition: 'opacity 0.8s cubic-bezier(0.16,1,0.3,1), transform 0.8s cubic-bezier(0.16,1,0.3,1)',
+                transitionDelay: '410ms',
               }}
             >
               Generate with{' '}
@@ -549,13 +645,16 @@ export default function Home() {
 
           {/* sub */}
           <p
-            data-animate
             className="mb-8"
             style={{
               fontSize: '18px',
               color: '#5F5F75',
               maxWidth: '500px',
               lineHeight: 1.72,
+              opacity: heroLoaded ? 1 : 0,
+              transform: heroLoaded ? 'translateY(0)' : 'translateY(24px)',
+              transition: 'opacity 0.8s cubic-bezier(0.16,1,0.3,1), transform 0.8s cubic-bezier(0.16,1,0.3,1)',
+              transitionDelay: '540ms',
             }}
           >
             Create stunning, publish-ready marketing ads in seconds. No
@@ -565,8 +664,13 @@ export default function Home() {
 
           {/* CTA row */}
           <div
-            data-animate
             className="flex flex-col sm:flex-row items-center gap-4 mb-6"
+            style={{
+              opacity: heroLoaded ? 1 : 0,
+              transform: heroLoaded ? 'translateY(0)' : 'translateY(24px)',
+              transition: 'opacity 0.8s cubic-bezier(0.16,1,0.3,1), transform 0.8s cubic-bezier(0.16,1,0.3,1)',
+              transitionDelay: '650ms',
+            }}
           >
             <Link
               href="/create"
@@ -583,9 +687,15 @@ export default function Home() {
 
           {/* social micro */}
           <div
-            data-animate
             className="flex items-center gap-1 mb-16"
-            style={{ fontSize: '13px', color: '#5F5F75' }}
+            style={{
+              fontSize: '13px',
+              color: '#5F5F75',
+              opacity: heroLoaded ? 1 : 0,
+              transform: heroLoaded ? 'translateY(0)' : 'translateY(24px)',
+              transition: 'opacity 0.8s cubic-bezier(0.16,1,0.3,1), transform 0.8s cubic-bezier(0.16,1,0.3,1)',
+              transitionDelay: '740ms',
+            }}
           >
             <div className="flex" style={{ color: '#3B9EFF' }}>
               {[...Array(5)].map((_, i) => (
@@ -600,12 +710,12 @@ export default function Home() {
             className="w-full max-w-[1000px] mx-auto"
             style={{
               transform: heroLoaded
-                ? `perspective(1200px) rotateX(${dashTilt}deg)`
-                : 'perspective(1200px) rotateX(6deg) translateY(80px)',
+                ? `perspective(1200px) rotateX(${dashTilt}deg) scale(1)`
+                : 'perspective(1200px) rotateX(6deg) translateY(80px) scale(0.97)',
               opacity: heroLoaded ? 1 : 0,
               transition:
-                'transform 0.8s cubic-bezier(0.16,1,0.3,1), opacity 0.8s ease',
-              transitionDelay: '500ms',
+                'transform 0.8s cubic-bezier(0.16,1,0.3,1), opacity 0.8s cubic-bezier(0.16,1,0.3,1)',
+              transitionDelay: '860ms',
             }}
           >
             <div
@@ -782,7 +892,7 @@ export default function Home() {
         className="lp-section lp-section-light relative"
         style={{ paddingTop: '60px', paddingBottom: '60px' }}
       >
-        <div className="section-content container mx-auto px-4 text-center">
+        <div className="section-inner container mx-auto px-4 text-center">
           <p
             data-animate
             className="mb-8"
@@ -797,18 +907,19 @@ export default function Home() {
             Trusted by teams at
           </p>
           <div
-            className="relative overflow-hidden"
+            className="marquee-wrap relative"
             style={{
               maskImage:
-                'linear-gradient(to right, transparent 0%, black 12%, black 88%, transparent 100%)',
+                'linear-gradient(to right, transparent, black 10%, black 90%, transparent)',
               WebkitMaskImage:
-                'linear-gradient(to right, transparent 0%, black 12%, black 88%, transparent 100%)',
+                'linear-gradient(to right, transparent, black 10%, black 90%, transparent)',
             }}
           >
             <div
-              className="flex items-center gap-16 whitespace-nowrap"
+              className="marquee-track flex items-center whitespace-nowrap"
               style={{
-                animation: 'marquee 25s linear infinite',
+                gap: '80px',
+                animation: 'marquee 22s linear infinite',
                 width: 'max-content',
               }}
             >
@@ -825,10 +936,11 @@ export default function Home() {
                 ].map((name) => (
                   <span
                     key={`${setIdx}-${name}`}
-                    className="text-xl font-bold tracking-tight font-display"
+                    className="text-xl tracking-tight font-display"
                     style={{
-                      color: 'rgba(14,14,24,0.18)',
-                      minWidth: '120px',
+                      color: 'rgba(0,0,0,0.35)',
+                      fontWeight: 600,
+                      minWidth: '100px',
                       textAlign: 'center',
                     }}
                   >
@@ -846,7 +958,7 @@ export default function Home() {
         id="features"
         className="lp-section lp-section-dark"
       >
-        <div className="section-content container mx-auto px-4">
+        <div className="section-inner container mx-auto px-4">
           <p data-animate className="lp-label">
             — How It Works
           </p>
@@ -890,12 +1002,14 @@ export default function Home() {
                   >
                     <div className="flex items-center gap-3 mb-2">
                       <span
-                        className="font-mono text-sm font-bold"
+                        className="step-number font-mono text-sm font-bold"
                         style={{
                           color:
                             activeStep === i
                               ? '#3B9EFF'
                               : 'rgba(59,158,255,0.3)',
+                          textShadow: activeStep === i ? '0 0 20px rgba(59,158,255,0.4)' : 'none',
+                          transition: 'color 0.3s, text-shadow 0.3s',
                         }}
                       >
                         {step.num}
@@ -1101,7 +1215,7 @@ export default function Home() {
 
       {/* ═══ SECTION 4 · FEATURE GRID — Light ═══ */}
       <section className="lp-section lp-section-light">
-        <div className="section-content container mx-auto px-4">
+        <div className="section-inner container mx-auto px-4">
           <div className="text-center mb-16">
             <p data-animate className="lp-label">
               — Everything You Need
@@ -1176,7 +1290,7 @@ export default function Home() {
         id="testimonials"
         className="lp-section lp-section-dark"
       >
-        <div className="section-content container mx-auto px-4">
+        <div className="section-inner container mx-auto px-4">
           <div className="text-center mb-16">
             <p data-animate className="lp-label">
               — Testimonials
@@ -1230,51 +1344,72 @@ export default function Home() {
             </div>
           </blockquote>
 
-          <div className="grid md:grid-cols-3 gap-5">
-            {TESTIMONIALS.map((t, i) => (
-              <div
-                key={t.name}
-                className="testimonial-card"
-                data-animate
-                style={{ transitionDelay: `${i * 110}ms` }}
-              >
-                <p
-                  className="mb-6"
-                  style={{
-                    fontSize: '16px',
-                    lineHeight: 1.72,
-                    color: '#ECEAF4',
-                  }}
-                >
-                  &ldquo;{t.quote}&rdquo;
-                </p>
-                <div className="flex items-center gap-3">
+          <div
+            className="testimonials-outer"
+            style={{
+              overflow: 'hidden',
+              maskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)',
+              WebkitMaskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)',
+            }}
+          >
+            <div
+              className="testimonials-track"
+              style={{
+                display: 'flex',
+                gap: '24px',
+                width: 'max-content',
+                animation: 'testimonialsScroll 35s linear infinite',
+              }}
+            >
+              {[...Array(2)].flatMap((_, setIdx) =>
+                TESTIMONIALS.map((t, i) => (
                   <div
-                    className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm"
+                    key={`${setIdx}-${t.name}`}
+                    className="testimonial-card"
                     style={{
-                      background: 'linear-gradient(135deg, #3B9EFF, #1a5fa8)',
-                      color: '#fff',
+                      minWidth: '380px',
+                      flexShrink: 0,
                     }}
                   >
-                    {t.name
-                      .split(' ')
-                      .map((n) => n[0])
-                      .join('')}
-                  </div>
-                  <div>
-                    <div
-                      className="font-semibold text-sm"
-                      style={{ color: '#ECEAF4' }}
+                    <p
+                      className="mb-6"
+                      style={{
+                        fontSize: '16px',
+                        lineHeight: 1.72,
+                        color: '#ECEAF4',
+                      }}
                     >
-                      {t.name}
-                    </div>
-                    <div style={{ fontSize: '13px', color: '#5F5F75' }}>
-                      {t.role}, {t.company}
+                      &ldquo;{t.quote}&rdquo;
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm"
+                        style={{
+                          background: 'linear-gradient(135deg, #3B9EFF, #1a5fa8)',
+                          color: '#fff',
+                        }}
+                      >
+                        {t.name
+                          .split(' ')
+                          .map((n) => n[0])
+                          .join('')}
+                      </div>
+                      <div>
+                        <div
+                          className="font-semibold text-sm"
+                          style={{ color: '#ECEAF4' }}
+                        >
+                          {t.name}
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#5F5F75' }}>
+                          {t.role}, {t.company}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            ))}
+                ))
+              )}
+            </div>
           </div>
         </div>
       </section>
@@ -1284,7 +1419,7 @@ export default function Home() {
         id="pricing"
         className="lp-section lp-section-light"
       >
-        <div className="section-content container mx-auto px-4">
+        <div className="section-inner container mx-auto px-4">
           <div className="text-center mb-12">
             <p data-animate className="lp-label">
               — Pricing
@@ -1459,7 +1594,7 @@ export default function Home() {
           backgroundSize: '28px 28px',
         }}
       >
-        <div className="section-content container mx-auto px-4">
+        <div className="section-inner container mx-auto px-4">
           <div
             className="stats-grid"
             style={{
@@ -1532,9 +1667,39 @@ export default function Home() {
         style={{
           background:
             'radial-gradient(ellipse 60% 50% at 50% 60%, rgba(59,158,255,0.08), transparent), #07070B',
+          backgroundImage: 'radial-gradient(ellipse 60% 50% at 50% 60%, rgba(59,158,255,0.08), transparent), radial-gradient(rgba(255,255,255,0.028) 1px, transparent 1px)',
+          backgroundSize: 'cover, 30px 30px',
         }}
       >
-        <div className="section-content container mx-auto px-4 text-center">
+        {/* Glow Orb 1 — top center */}
+        <div
+          style={{
+            position: 'absolute',
+            top: '-80px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: '800px',
+            height: '500px',
+            background: 'radial-gradient(ellipse, rgba(59,158,255,0.08), transparent 65%)',
+            pointerEvents: 'none',
+            zIndex: 0,
+          }}
+        />
+        {/* Glow Orb 2 — bottom right */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            right: '8%',
+            width: '400px',
+            height: '300px',
+            background: 'radial-gradient(ellipse, rgba(59,158,255,0.05), transparent 65%)',
+            pointerEvents: 'none',
+            zIndex: 0,
+          }}
+        />
+
+        <div className="section-inner container mx-auto px-4 text-center" style={{ position: 'relative', zIndex: 1 }}>
           <h2
             data-animate
             className="font-display mb-6"
@@ -1573,10 +1738,21 @@ export default function Home() {
             speed of thought.
           </p>
 
+          {/* Vertical accent line */}
+          <div
+            style={{
+              width: '1px',
+              height: '60px',
+              margin: '0 auto 32px',
+              background: 'linear-gradient(to bottom, transparent, #3B9EFF, transparent)',
+              display: 'block',
+            }}
+          />
+
           <div data-animate className="mb-6">
             <Link
               href="/create"
-              className="cta-primary inline-flex items-center gap-2 text-lg px-10 py-4"
+              className="cta-primary cta-final inline-flex items-center gap-2"
             >
               Get Started Free
               <ArrowRight className="h-5 w-5" />
@@ -1602,22 +1778,86 @@ export default function Home() {
         style={{
           background: '#07070B',
           borderTop: '1px solid rgba(255,255,255,0.06)',
-          padding: '40px 0',
+          padding: '64px 0 40px',
         }}
       >
-        <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5" style={{ color: '#3B9EFF' }} />
-            <span
-              className="font-display font-semibold"
-              style={{ color: '#ECEAF4' }}
-            >
-              AdGen AI
-            </span>
+        <div className="container mx-auto px-4">
+          {/* 3-column grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-12 md:gap-8">
+            {/* Left column — Logo + tagline + social */}
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <Sparkles className="h-5 w-5" style={{ color: '#3B9EFF' }} />
+                <span
+                  className="font-display font-semibold"
+                  style={{ color: '#ECEAF4' }}
+                >
+                  AdGen AI
+                </span>
+              </div>
+              <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.45)', marginBottom: '20px', lineHeight: 1.6 }}>
+                Generate stunning ads with AI.
+              </p>
+              {/* Social icons */}
+              <div className="flex items-center gap-4">
+                <a href="#" className="footer-social" aria-label="Twitter">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                  </svg>
+                </a>
+                <a href="#" className="footer-social" aria-label="LinkedIn">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                  </svg>
+                </a>
+                <a href="#" className="footer-social" aria-label="GitHub">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                  </svg>
+                </a>
+              </div>
+            </div>
+
+            {/* Product column */}
+            <div>
+              <h4 className="footer-heading">Product</h4>
+              <a href="#features" className="footer-link">Features</a>
+              <a href="#pricing" className="footer-link">Pricing</a>
+              <a href="/dashboard" className="footer-link">Dashboard</a>
+              <a href="#" className="footer-link">API Docs</a>
+            </div>
+
+            {/* Company column */}
+            <div>
+              <h4 className="footer-heading">Company</h4>
+              <a href="#" className="footer-link">About</a>
+              <a href="#" className="footer-link">Blog</a>
+              <a href="#" className="footer-link">Careers</a>
+              <a href="#" className="footer-link">Privacy</a>
+            </div>
           </div>
-          <p style={{ fontSize: '13px', color: '#5F5F75' }}>
-            © 2026 AdGen AI. All rights reserved.
-          </p>
+
+          {/* Bottom bar */}
+          <div
+            style={{
+              borderTop: '1px solid rgba(255,255,255,0.06)',
+              paddingTop: '24px',
+              marginTop: '48px',
+              display: 'flex',
+              flexWrap: 'wrap',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '12px',
+              fontSize: '13px',
+              color: 'rgba(255,255,255,0.3)',
+            }}
+          >
+            <span>© 2026 AdGen AI. All rights reserved.</span>
+            <div style={{ display: 'flex', gap: '20px' }}>
+              <a href="#" style={{ color: 'rgba(255,255,255,0.3)', transition: 'color 0.2s' }} className="hover:text-white">Privacy</a>
+              <a href="#" style={{ color: 'rgba(255,255,255,0.3)', transition: 'color 0.2s' }} className="hover:text-white">Terms</a>
+            </div>
+          </div>
         </div>
       </footer>
     </div>
