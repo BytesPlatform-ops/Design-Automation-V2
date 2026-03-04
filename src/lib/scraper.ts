@@ -1,4 +1,4 @@
-import { JSDOM } from 'jsdom';
+import * as cheerio from 'cheerio';
 
 export interface ScrapedWebsiteData {
   url: string;
@@ -34,7 +34,7 @@ export interface ScrapedWebsiteData {
 }
 
 /**
- * Scrape a website and extract relevant brand/marketing data
+ * Scrape a website and extract relevant brand/marketing data (using Cheerio)
  */
 export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
   // Normalize URL
@@ -55,14 +55,13 @@ export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
   }
 
   const html = await response.text();
-  const dom = new JSDOM(html, { url: normalizedUrl });
-  const document = dom.window.document;
+  const $ = cheerio.load(html);
 
   // Extract base URL for resolving relative URLs
   const baseUrl = new URL(normalizedUrl);
 
   // Helper to resolve URLs
-  const resolveUrl = (relativeUrl: string | null): string | null => {
+  const resolveUrl = (relativeUrl: string | null | undefined): string | null => {
     if (!relativeUrl) return null;
     try {
       return new URL(relativeUrl, baseUrl).href;
@@ -72,18 +71,18 @@ export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
   };
 
   // Extract title
-  const title = document.querySelector('title')?.textContent?.trim() || '';
+  const title = $('title').text().trim() || '';
 
   // Extract meta description
   const description = 
-    document.querySelector('meta[name="description"]')?.getAttribute('content') ||
-    document.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
+    $('meta[name="description"]').attr('content') ||
+    $('meta[property="og:description"]').attr('content') ||
     '';
 
   // Extract favicon
   const faviconLink = 
-    document.querySelector('link[rel="icon"]')?.getAttribute('href') ||
-    document.querySelector('link[rel="shortcut icon"]')?.getAttribute('href') ||
+    $('link[rel="icon"]').attr('href') ||
+    $('link[rel="shortcut icon"]').attr('href') ||
     '/favicon.ico';
   const favicon = resolveUrl(faviconLink);
 
@@ -99,20 +98,19 @@ export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
   ];
   let logo: string | null = null;
   for (const selector of logoSelectors) {
-    const logoEl = document.querySelector(selector) as HTMLImageElement;
-    if (logoEl?.src) {
-      logo = resolveUrl(logoEl.src);
+    const logoEl = $(selector).first();
+    if (logoEl.length && logoEl.attr('src')) {
+      logo = resolveUrl(logoEl.attr('src'));
       if (logo) break;
     }
   }
 
   // Extract images (top images, excluding tiny icons)
   const images: string[] = [];
-  const imgElements = document.querySelectorAll('img');
-  imgElements.forEach((img) => {
-    const src = img.getAttribute('src');
-    const width = parseInt(img.getAttribute('width') || '100');
-    const height = parseInt(img.getAttribute('height') || '100');
+  $('img').each((_, img) => {
+    const src = $(img).attr('src');
+    const width = parseInt($(img).attr('width') || '100');
+    const height = parseInt($(img).attr('height') || '100');
     
     // Skip tiny images (likely icons)
     if (width < 50 || height < 50) return;
@@ -128,8 +126,8 @@ export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
   const colorRegex = /#[0-9A-Fa-f]{3,8}|rgb\([^)]+\)|rgba\([^)]+\)/g;
   
   // From inline styles
-  document.querySelectorAll('[style]').forEach((el) => {
-    const style = el.getAttribute('style') || '';
+  $('[style]').each((_, el) => {
+    const style = $(el).attr('style') || '';
     const matches = style.match(colorRegex);
     if (matches) {
       matches.forEach((c) => {
@@ -139,8 +137,8 @@ export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
   });
   
   // From internal stylesheets (limit to first 5000 chars for performance)
-  document.querySelectorAll('style').forEach((styleEl) => {
-    const css = (styleEl.textContent || '').slice(0, 5000);
+  $('style').each((_, styleEl) => {
+    const css = ($(styleEl).html() || '').slice(0, 5000);
     const matches = css.match(colorRegex);
     if (matches) {
       matches.forEach((c) => {
@@ -151,8 +149,8 @@ export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
 
   // Extract headings
   const headings: string[] = [];
-  document.querySelectorAll('h1, h2, h3').forEach((h) => {
-    const text = h.textContent?.trim();
+  $('h1, h2, h3').each((_, h) => {
+    const text = $(h).text().trim();
     if (text && headings.length < 20) {
       headings.push(text);
     }
@@ -160,8 +158,8 @@ export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
 
   // Extract meaningful paragraphs
   const paragraphs: string[] = [];
-  document.querySelectorAll('p').forEach((p) => {
-    const text = p.textContent?.trim();
+  $('p').each((_, p) => {
+    const text = $(p).text().trim();
     if (text && text.length > 30 && paragraphs.length < 15) {
       paragraphs.push(text.slice(0, 500));
     }
@@ -169,9 +167,9 @@ export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
 
   // Extract links with text
   const links: { text: string; href: string }[] = [];
-  document.querySelectorAll('a[href]').forEach((a) => {
-    const text = a.textContent?.trim();
-    const href = a.getAttribute('href');
+  $('a[href]').each((_, a) => {
+    const text = $(a).text().trim();
+    const href = $(a).attr('href');
     if (text && href && !href.startsWith('#') && links.length < 30) {
       const resolved = resolveUrl(href);
       if (resolved) {
@@ -182,9 +180,9 @@ export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
 
   // Extract meta data
   const metaData: Record<string, string> = {};
-  document.querySelectorAll('meta[name], meta[property]').forEach((meta) => {
-    const name = meta.getAttribute('name') || meta.getAttribute('property') || '';
-    const content = meta.getAttribute('content') || '';
+  $('meta[name], meta[property]').each((_, meta) => {
+    const name = $(meta).attr('name') || $(meta).attr('property') || '';
+    const content = $(meta).attr('content') || '';
     if (name && content) {
       metaData[name] = content;
     }
@@ -192,17 +190,17 @@ export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
 
   // Extract OpenGraph data
   const ogData = {
-    title: document.querySelector('meta[property="og:title"]')?.getAttribute('content') || undefined,
-    description: document.querySelector('meta[property="og:description"]')?.getAttribute('content') || undefined,
-    image: resolveUrl(document.querySelector('meta[property="og:image"]')?.getAttribute('content') || null) || undefined,
-    siteName: document.querySelector('meta[property="og:site_name"]')?.getAttribute('content') || undefined,
+    title: $('meta[property="og:title"]').attr('content') || undefined,
+    description: $('meta[property="og:description"]').attr('content') || undefined,
+    image: resolveUrl($('meta[property="og:image"]').attr('content')) || undefined,
+    siteName: $('meta[property="og:site_name"]').attr('content') || undefined,
   };
 
   // Extract structured data (JSON-LD)
   const structuredData: unknown[] = [];
-  document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
+  $('script[type="application/ld+json"]').each((_, script) => {
     try {
-      const data = JSON.parse(script.textContent || '');
+      const data = JSON.parse($(script).html() || '');
       structuredData.push(data);
     } catch {
       // Invalid JSON, skip
@@ -210,7 +208,7 @@ export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
   });
 
   // Extract contact info using regex
-  const pageText = document.body?.textContent || '';
+  const pageText = $('body').text() || '';
   const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
   const phoneRegex = /(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}/g;
   
@@ -249,21 +247,21 @@ export async function scrapeWebsite(url: string): Promise<ScrapedWebsiteData> {
   for (const selector of productSelectors) {
     if (products.length >= 10) break;
     
-    document.querySelectorAll(selector).forEach((el) => {
+    $(selector).each((_, el) => {
       if (products.length >= 10) return;
       
-      const nameEl = el.querySelector('h2, h3, h4, [class*="title"], [class*="name"]');
-      const priceEl = el.querySelector('[class*="price"], .price');
-      const imgEl = el.querySelector('img') as HTMLImageElement;
-      const descEl = el.querySelector('p, [class*="description"]');
+      const nameEl = $(el).find('h2, h3, h4, [class*="title"], [class*="name"]').first();
+      const priceEl = $(el).find('[class*="price"], .price').first();
+      const imgEl = $(el).find('img').first();
+      const descEl = $(el).find('p, [class*="description"]').first();
       
-      const name = nameEl?.textContent?.trim();
+      const name = nameEl.text().trim();
       if (name && name.length > 2 && name.length < 100) {
         products.push({
           name,
-          price: priceEl?.textContent?.trim()?.slice(0, 50),
-          image: resolveUrl(imgEl?.src) || undefined,
-          description: descEl?.textContent?.trim()?.slice(0, 200),
+          price: priceEl.text().trim().slice(0, 50) || undefined,
+          image: resolveUrl(imgEl.attr('src')) || undefined,
+          description: descEl.text().trim().slice(0, 200) || undefined,
         });
       }
     });

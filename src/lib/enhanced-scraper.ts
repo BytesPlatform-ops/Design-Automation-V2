@@ -1,15 +1,19 @@
-import { JSDOM } from 'jsdom';
+import * as cheerio from 'cheerio';
+import type { CheerioAPI, Cheerio } from 'cheerio';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type CheerioElement = Cheerio<any>;
 
 export interface ScrapedProduct {
   name: string;
   price: string | null;
-  originalPrice: string | null; // For discounted items
+  originalPrice: string | null;
   currency: string | null;
   image: string | null;
-  images: string[]; // Multiple product images
+  images: string[];
   description: string | null;
   category: string | null;
-  variants: string[]; // Size variants like 250g, 500g
+  variants: string[];
   inStock: boolean;
   url: string | null;
 }
@@ -23,7 +27,7 @@ export interface EnhancedScrapedData {
   logo: string | null;
   favicon: string | null;
   
-  // Colors (prioritized by frequency/importance)
+  // Colors
   primaryColor: string | null;
   secondaryColor: string | null;
   accentColor: string | null;
@@ -62,7 +66,7 @@ export interface EnhancedScrapedData {
 }
 
 /**
- * Enhanced website scraper with better product extraction
+ * Enhanced website scraper using Cheerio (serverless compatible)
  */
 export async function enhancedScrapeWebsite(url: string): Promise<EnhancedScrapedData> {
   const normalizedUrl = url.startsWith('http') ? url : `https://${url}`;
@@ -70,18 +74,17 @@ export async function enhancedScrapeWebsite(url: string): Promise<EnhancedScrape
   // Fetch main page
   const mainPageData = await fetchAndParse(normalizedUrl);
   
-  // Try to find and scrape product/shop pages for more products
-  const productPageUrls = findProductPageUrls(mainPageData.document, mainPageData.baseUrl);
+  // Try to find and scrape product/shop pages
+  const productPageUrls = findProductPageUrls(mainPageData.$, mainPageData.baseUrl);
   
-  let allProducts = extractProducts(mainPageData.document, mainPageData.baseUrl);
+  let allProducts = extractProducts(mainPageData.$, mainPageData.baseUrl);
   
-  // Scrape additional product pages (limit to 3 to avoid too many requests)
+  // Scrape additional product pages (limit to 3)
   for (const productPageUrl of productPageUrls.slice(0, 3)) {
     try {
       const productPageData = await fetchAndParse(productPageUrl);
-      const moreProducts = extractProducts(productPageData.document, productPageData.baseUrl);
+      const moreProducts = extractProducts(productPageData.$, productPageData.baseUrl);
       
-      // Merge products, avoiding duplicates
       moreProducts.forEach(product => {
         if (!allProducts.some(p => p.name === product.name && p.price === product.price)) {
           allProducts.push(product);
@@ -93,34 +96,34 @@ export async function enhancedScrapeWebsite(url: string): Promise<EnhancedScrape
   }
   
   // Extract brand identity
-  const brandName = extractBrandName(mainPageData.document, normalizedUrl);
-  const tagline = extractTagline(mainPageData.document);
-  const logo = extractLogo(mainPageData.document, mainPageData.baseUrl);
+  const brandName = extractBrandName(mainPageData.$, normalizedUrl);
+  const tagline = extractTagline(mainPageData.$);
+  const logo = extractLogo(mainPageData.$, mainPageData.baseUrl);
   
-  // Extract colors with priority
-  const colors = extractColorsWithPriority(mainPageData.document, mainPageData.html);
+  // Extract colors
+  const colors = extractColorsWithPriority(mainPageData.$, mainPageData.html);
   
   // Extract images
-  const images = extractImagesWithContext(mainPageData.document, mainPageData.baseUrl);
+  const images = extractImagesWithContext(mainPageData.$, mainPageData.baseUrl);
   
   // Extract text content
-  const textContent = extractTextContent(mainPageData.document);
+  const textContent = extractTextContent(mainPageData.$);
   
   // Extract contact info
-  const contactInfo = extractContactInfo(mainPageData.document, mainPageData.html);
+  const contactInfo = extractContactInfo(mainPageData.$, mainPageData.html);
   
   // Extract structured data
-  const structuredData = extractStructuredData(mainPageData.document);
+  const structuredData = extractStructuredData(mainPageData.$);
   
   // Detect business type
-  const isEcommerce = detectEcommerce(mainPageData.document, allProducts);
-  const estimatedProductType = detectProductType(mainPageData.document, allProducts, textContent);
+  const isEcommerce = detectEcommerce(mainPageData.$, allProducts);
+  const estimatedProductType = detectProductType(mainPageData.$, allProducts, textContent);
   
   // Extract favicon
-  const favicon = extractFavicon(mainPageData.document, mainPageData.baseUrl);
+  const favicon = extractFavicon(mainPageData.$, mainPageData.baseUrl);
   
   // Extract OG data
-  const ogImage = mainPageData.document.querySelector('meta[property="og:image"]')?.getAttribute('content');
+  const ogImage = mainPageData.$('meta[property="og:image"]').attr('content');
   
   return {
     url: normalizedUrl,
@@ -151,8 +154,8 @@ export async function enhancedScrapeWebsite(url: string): Promise<EnhancedScrape
     address: contactInfo.address,
     socialLinks: contactInfo.social,
     
-    metaTitle: mainPageData.document.querySelector('title')?.textContent?.trim() || brandName,
-    metaDescription: mainPageData.document.querySelector('meta[name="description"]')?.getAttribute('content') || '',
+    metaTitle: mainPageData.$('title').text().trim() || brandName,
+    metaDescription: mainPageData.$('meta[name="description"]').attr('content') || '',
     ogImage: ogImage ? resolveUrl(ogImage, mainPageData.baseUrl) : null,
     structuredData,
     
@@ -179,11 +182,11 @@ async function fetchAndParse(url: string) {
   }
 
   const html = await response.text();
-  const dom = new JSDOM(html, { url });
+  const $ = cheerio.load(html);
   
   return {
     html,
-    document: dom.window.document,
+    $,
     baseUrl: new URL(url),
   };
 }
@@ -197,18 +200,18 @@ function resolveUrl(relativeUrl: string | null | undefined, baseUrl: URL): strin
   }
 }
 
-function findProductPageUrls(document: Document, baseUrl: URL): string[] {
+function findProductPageUrls($: CheerioAPI, baseUrl: URL): string[] {
   const urls: string[] = [];
   const patterns = [
     /shop/i, /products/i, /store/i, /catalog/i, /collection/i,
     /all-products/i, /buy/i, /order/i
   ];
   
-  document.querySelectorAll('a[href]').forEach(a => {
-    const href = a.getAttribute('href');
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href');
     if (!href) return;
     
-    const text = a.textContent?.toLowerCase() || '';
+    const text = $(el).text().toLowerCase();
     const hrefLower = href.toLowerCase();
     
     if (patterns.some(p => p.test(hrefLower) || p.test(text))) {
@@ -222,13 +225,12 @@ function findProductPageUrls(document: Document, baseUrl: URL): string[] {
   return urls;
 }
 
-function extractProducts(document: Document, baseUrl: URL): ScrapedProduct[] {
+function extractProducts($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
   const products: ScrapedProduct[] = [];
   const seenNames = new Set<string>();
   
-  // Enhanced product selectors for various e-commerce platforms
+  // Product container selectors
   const productContainerSelectors = [
-    // Generic
     '[class*="product-card"]',
     '[class*="product-item"]',
     '[class*="product_card"]',
@@ -236,29 +238,17 @@ function extractProducts(document: Document, baseUrl: URL): ScrapedProduct[] {
     '[data-product]',
     '[data-product-id]',
     '[itemtype*="Product"]',
-    
-    // Shopify
     '.product-card',
     '.product-grid-item',
     '.product-item',
-    
-    // WooCommerce
     '.product',
     '.wc-product',
-    
-    // Wix
     '[data-hook="product-item"]',
     '[class*="ProductItem"]',
-    
-    // Squarespace
     '.ProductItem',
     '.product-block',
-    
-    // Generic cards that might be products
     '.card[class*="product"]',
     '.item[class*="product"]',
-    
-    // Ecwid/Lightspeed (company.site)
     '.grid-product',
     '.ec-product',
     '.ins-component__item',
@@ -266,24 +256,23 @@ function extractProducts(document: Document, baseUrl: URL): ScrapedProduct[] {
     '.ins-component__item-wrap',
   ];
   
-  // Try each selector
   for (const selector of productContainerSelectors) {
     try {
-      document.querySelectorAll(selector).forEach(el => {
-        const product = extractProductFromElement(el, baseUrl);
+      $(selector).each((_, el) => {
+        const product = extractProductFromElement($, $(el), baseUrl);
         if (product && !seenNames.has(product.name.toLowerCase())) {
           seenNames.add(product.name.toLowerCase());
           products.push(product);
         }
       });
     } catch {
-      // Selector might not be valid, skip
+      // Selector might not be valid
     }
   }
   
-  // Try Lightspeed/Ecwid embedded state (company.site)
+  // Try Lightspeed/Ecwid embedded state
   if (products.length < 3) {
-    const lightspeedProducts = extractProductsFromLightspeedState(document, baseUrl);
+    const lightspeedProducts = extractProductsFromLightspeedState($, baseUrl);
     lightspeedProducts.forEach(p => {
       if (!seenNames.has(p.name.toLowerCase())) {
         seenNames.add(p.name.toLowerCase());
@@ -292,9 +281,9 @@ function extractProducts(document: Document, baseUrl: URL): ScrapedProduct[] {
     });
   }
   
-  // If no products found, try structured data
+  // Try structured data
   if (products.length === 0) {
-    const structuredProducts = extractProductsFromStructuredData(document, baseUrl);
+    const structuredProducts = extractProductsFromStructuredData($, baseUrl);
     structuredProducts.forEach(p => {
       if (!seenNames.has(p.name.toLowerCase())) {
         seenNames.add(p.name.toLowerCase());
@@ -303,9 +292,9 @@ function extractProducts(document: Document, baseUrl: URL): ScrapedProduct[] {
     });
   }
   
-  // If still no products, try a more aggressive approach
+  // Aggressive approach
   if (products.length === 0) {
-    const aggressiveProducts = extractProductsAggressive(document, baseUrl);
+    const aggressiveProducts = extractProductsAggressive($, baseUrl);
     aggressiveProducts.forEach(p => {
       if (!seenNames.has(p.name.toLowerCase())) {
         seenNames.add(p.name.toLowerCase());
@@ -317,13 +306,10 @@ function extractProducts(document: Document, baseUrl: URL): ScrapedProduct[] {
   return products;
 }
 
-function extractProductFromElement(el: Element, baseUrl: URL): ScrapedProduct | null {
-  // Name extraction - try multiple selectors
+function extractProductFromElement($: CheerioAPI, el: CheerioElement, baseUrl: URL): ScrapedProduct | null {
   const nameSelectors = [
-    // Lightspeed/company.site specific
     '.ins-component__title-inner',
     '.ins-component__title',
-    // Generic
     'h1', 'h2', 'h3', 'h4',
     '[class*="title"]',
     '[class*="name"]',
@@ -333,23 +319,25 @@ function extractProductFromElement(el: Element, baseUrl: URL): ScrapedProduct | 
     '.product-title',
     '.product-name',
     'a[class*="product"]',
-    // Also check aria-label on links
     'a[aria-label]',
   ];
   
   let name: string | null = null;
   for (const selector of nameSelectors) {
-    const nameEl = el.querySelector(selector);
-    if (nameEl?.textContent?.trim()) {
-      name = nameEl.textContent.trim();
-      break;
-    }
-    // Check aria-label for Lightspeed links
-    if (selector === 'a[aria-label]' && nameEl) {
-      const ariaLabel = nameEl.getAttribute('aria-label');
-      if (ariaLabel && ariaLabel.length > 2 && ariaLabel.length < 200) {
-        name = ariaLabel;
+    const nameEl = el.find(selector).first();
+    if (nameEl.length) {
+      const text = nameEl.text().trim();
+      if (text && text.length > 1 && text.length < 200) {
+        name = text;
         break;
+      }
+      // Check aria-label
+      if (selector === 'a[aria-label]') {
+        const ariaLabel = nameEl.attr('aria-label');
+        if (ariaLabel && ariaLabel.length > 2 && ariaLabel.length < 200) {
+          name = ariaLabel;
+          break;
+        }
       }
     }
   }
@@ -358,10 +346,8 @@ function extractProductFromElement(el: Element, baseUrl: URL): ScrapedProduct | 
   
   // Price extraction
   const priceSelectors = [
-    // Lightspeed/company.site specific
     '.ins-component__price-value',
     '.ins-component__price-amount',
-    // Generic
     '[class*="price"]',
     '[data-hook*="price"]',
     '.price',
@@ -373,15 +359,11 @@ function extractProductFromElement(el: Element, baseUrl: URL): ScrapedProduct | 
   let originalPrice: string | null = null;
   
   for (const selector of priceSelectors) {
-    const priceEls = el.querySelectorAll(selector);
-    priceEls.forEach(priceEl => {
-      const text = priceEl.textContent?.trim();
+    el.find(selector).each((_, priceEl) => {
+      const text = $(priceEl).text().trim();
       if (text && /[\d.,]+/.test(text)) {
-        // Check if it's a "was" price (original/crossed out)
-        if (priceEl.closest('[class*="original"]') || 
-            priceEl.closest('[class*="was"]') ||
-            priceEl.closest('del') ||
-            priceEl.closest('s')) {
+        const isOriginal = $(priceEl).closest('[class*="original"], [class*="was"], del, s').length > 0;
+        if (isOriginal) {
           if (!originalPrice) originalPrice = text;
         } else {
           if (!price) price = text;
@@ -393,10 +375,8 @@ function extractProductFromElement(el: Element, baseUrl: URL): ScrapedProduct | 
   
   // Image extraction
   const imgSelectors = [
-    // Lightspeed/company.site specific
     '.ins-component__bg-image img',
     '.ins-picture img',
-    // Generic
     'img[class*="product"]',
     'img[data-product]',
     'picture img',
@@ -407,14 +387,9 @@ function extractProductFromElement(el: Element, baseUrl: URL): ScrapedProduct | 
   const images: string[] = [];
   
   for (const selector of imgSelectors) {
-    const imgEl = el.querySelector(selector) as HTMLImageElement;
-    if (imgEl) {
-      // Try different src attributes
-      const src = imgEl.getAttribute('src') || 
-                  imgEl.getAttribute('data-src') || 
-                  imgEl.getAttribute('data-lazy-src') ||
-                  imgEl.getAttribute('data-original');
-      
+    const imgEl = el.find(selector).first();
+    if (imgEl.length) {
+      const src = imgEl.attr('src') || imgEl.attr('data-src') || imgEl.attr('data-lazy-src') || imgEl.attr('data-original');
       const resolved = resolveUrl(src, baseUrl);
       if (resolved && !resolved.includes('placeholder') && !resolved.includes('loading')) {
         if (!image) image = resolved;
@@ -424,16 +399,11 @@ function extractProductFromElement(el: Element, baseUrl: URL): ScrapedProduct | 
   }
   
   // Description
-  const descSelectors = [
-    '[class*="description"]',
-    '[class*="excerpt"]',
-    'p',
-  ];
-  
   let description: string | null = null;
+  const descSelectors = ['[class*="description"]', '[class*="excerpt"]', 'p'];
   for (const selector of descSelectors) {
-    const descEl = el.querySelector(selector);
-    const text = descEl?.textContent?.trim();
+    const descEl = el.find(selector).first();
+    const text = descEl.text().trim();
     if (text && text.length > 20 && text !== name) {
       description = text.slice(0, 300);
       break;
@@ -441,10 +411,10 @@ function extractProductFromElement(el: Element, baseUrl: URL): ScrapedProduct | 
   }
   
   // Product URL
-  const linkEl = el.querySelector('a[href]');
-  const productUrl = linkEl ? resolveUrl(linkEl.getAttribute('href'), baseUrl) : null;
+  const linkEl = el.find('a[href]').first();
+  const productUrl = linkEl.length ? resolveUrl(linkEl.attr('href'), baseUrl) : null;
   
-  // Extract currency from price
+  // Currency
   let currency: string | null = null;
   const priceStr = price as string | null;
   if (priceStr) {
@@ -463,21 +433,19 @@ function extractProductFromElement(el: Element, baseUrl: URL): ScrapedProduct | 
     image,
     images,
     description,
-    category: null, // Would need more context
+    category: null,
     variants: [],
-    inStock: true, // Default assumption
+    inStock: true,
     url: productUrl,
   };
 }
 
-function extractProductsFromStructuredData(document: Document, baseUrl: URL): ScrapedProduct[] {
+function extractProductsFromStructuredData($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
   const products: ScrapedProduct[] = [];
   
-  document.querySelectorAll('script[type="application/ld+json"]').forEach(script => {
+  $('script[type="application/ld+json"]').each((_, script) => {
     try {
-      const data = JSON.parse(script.textContent || '');
-      
-      // Handle array of items
+      const data = JSON.parse($(script).html() || '');
       const items = Array.isArray(data) ? data : [data];
       
       items.forEach(item => {
@@ -497,7 +465,6 @@ function extractProductsFromStructuredData(document: Document, baseUrl: URL): Sc
           });
         }
         
-        // Handle ItemList with products
         if (item['@type'] === 'ItemList' && item.itemListElement) {
           item.itemListElement.forEach((listItem: { item?: { name?: string; offers?: { price?: string | number; priceCurrency?: string }; image?: string; description?: string; url?: string } }) => {
             if (listItem.item) {
@@ -526,31 +493,19 @@ function extractProductsFromStructuredData(document: Document, baseUrl: URL): Sc
   return products;
 }
 
-/**
- * Extract products from Lightspeed/Ecwid embedded state (company.site)
- * These sites embed product data in window.initialState
- */
-function extractProductsFromLightspeedState(document: Document, baseUrl: URL): ScrapedProduct[] {
+function extractProductsFromLightspeedState($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
   const products: ScrapedProduct[] = [];
   
-  // Look for the initialState script
-  const scripts = document.querySelectorAll('script');
-  
-  for (const script of scripts) {
-    const content = script.textContent || '';
+  $('script').each((_, script) => {
+    const content = $(script).html() || '';
     
-    // Look for window.initialState pattern
     const stateMatch = content.match(/window\.initialState\s*=\s*"([\s\S]+?)";/);
     if (stateMatch) {
       try {
-        // The state is a JSON string that's been escaped - need careful unescaping
-        // First, use JSON.parse to handle the outer string escaping
         let jsonStr: string;
         try {
-          // Wrap in quotes and parse as a JSON string to handle escape sequences
           jsonStr = JSON.parse('"' + stateMatch[1] + '"');
         } catch {
-          // Fallback: manual unescaping
           jsonStr = stateMatch[1]
             .replace(/\\"/g, '"')
             .replace(/\\n/g, '\n')
@@ -561,27 +516,18 @@ function extractProductsFromLightspeedState(document: Document, baseUrl: URL): S
         
         const state = JSON.parse(jsonStr);
         
-        // Navigate to tile data which contains store products
         if (state.tile?.tileList) {
           for (const tile of state.tile.tileList) {
-            // Look for STORE type tiles
             if (tile.type === 'STORE' && tile.externalContent?.storeData?.products) {
-              const storeProducts = tile.externalContent.storeData.products;
-              
-              for (const p of storeProducts) {
+              for (const p of tile.externalContent.storeData.products) {
                 if (p.name && p.enabled !== false) {
                   products.push({
                     name: p.name,
                     price: p.formattedPrice || (p.price ? `${p.price}Rs` : null),
                     originalPrice: null,
-                    currency: 'PKR', // Default for company.site PK
+                    currency: 'PKR',
                     image: p.thumbnailImageUrl || p.imageUrl || null,
-                    images: [
-                      p.thumbnailImageUrl,
-                      p.imageUrl,
-                      p.fullImageUrl,
-                      p.alternativeProductImage?.imageUrl,
-                    ].filter(Boolean) as string[],
+                    images: [p.thumbnailImageUrl, p.imageUrl, p.fullImageUrl, p.alternativeProductImage?.imageUrl].filter(Boolean) as string[],
                     description: p.description ? stripHtml(p.description) : null,
                     category: null,
                     variants: [],
@@ -594,84 +540,66 @@ function extractProductsFromLightspeedState(document: Document, baseUrl: URL): S
           }
         }
       } catch {
-        // Silently ignore - DOM extraction is the primary method, this is just a bonus
-      }
-    }
-  }
-  
-  return products;
-}
-
-/**
- * Strip HTML tags from a string
- */
-function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 300);
-}
-
-function extractProductsAggressive(document: Document, baseUrl: URL): ScrapedProduct[] {
-  const products: ScrapedProduct[] = [];
-  
-  // Look for any element that has both a heading and a price nearby
-  const priceRegex = /(?:Rs\.?|₨|PKR|\$|€|£|₹)\s*[\d,]+(?:\.\d{2})?|[\d,]+(?:\.\d{2})?\s*(?:Rs\.?|₨|PKR|\$|€|£|₹)/i;
-  
-  document.querySelectorAll('*').forEach(el => {
-    const text = el.textContent || '';
-    if (priceRegex.test(text)) {
-      // Found a price, look for a product name nearby
-      const parent = el.parentElement?.parentElement;
-      if (parent) {
-        const heading = parent.querySelector('h1, h2, h3, h4, h5, h6');
-        const name = heading?.textContent?.trim();
-        
-        if (name && name.length > 2 && name.length < 100) {
-          const priceMatch = text.match(priceRegex);
-          const img = parent.querySelector('img') as HTMLImageElement;
-          
-          products.push({
-            name,
-            price: priceMatch?.[0] || null,
-            originalPrice: null,
-            currency: null,
-            image: resolveUrl(img?.src, baseUrl),
-            images: [],
-            description: null,
-            category: null,
-            variants: [],
-            inStock: true,
-            url: null,
-          });
-        }
+        // Ignore errors
       }
     }
   });
   
-  return products.slice(0, 20); // Limit aggressive extraction
+  return products;
 }
 
-function extractBrandName(document: Document, url: string): string {
-  // Try OG site name first
-  const ogSiteName = document.querySelector('meta[property="og:site_name"]')?.getAttribute('content');
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+}
+
+function extractProductsAggressive($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
+  const products: ScrapedProduct[] = [];
+  const priceRegex = /(?:Rs\.?|₨|PKR|\$|€|£|₹)\s*[\d,]+(?:\.\d{2})?|[\d,]+(?:\.\d{2})?\s*(?:Rs\.?|₨|PKR|\$|€|£|₹)/i;
+  
+  $('*').each((_, el) => {
+    const text = $(el).text();
+    if (priceRegex.test(text)) {
+      const parent = $(el).parent().parent();
+      const heading = parent.find('h1, h2, h3, h4, h5, h6').first();
+      const name = heading.text().trim();
+      
+      if (name && name.length > 2 && name.length < 100) {
+        const priceMatch = text.match(priceRegex);
+        const img = parent.find('img').first();
+        
+        products.push({
+          name,
+          price: priceMatch?.[0] || null,
+          originalPrice: null,
+          currency: null,
+          image: resolveUrl(img.attr('src'), baseUrl),
+          images: [],
+          description: null,
+          category: null,
+          variants: [],
+          inStock: true,
+          url: null,
+        });
+      }
+    }
+  });
+  
+  return products.slice(0, 20);
+}
+
+function extractBrandName($: CheerioAPI, url: string): string {
+  const ogSiteName = $('meta[property="og:site_name"]').attr('content');
   if (ogSiteName) return ogSiteName;
   
-  // Try title, often contains brand name
-  const title = document.querySelector('title')?.textContent?.trim() || '';
-  
-  // Common patterns: "Brand Name - Tagline" or "Brand Name | Something"
+  const title = $('title').text().trim();
   const titleParts = title.split(/[-|–—]/);
   if (titleParts.length > 0 && titleParts[0].trim().length > 1) {
     return titleParts[0].trim();
   }
   
-  // Try logo alt text
-  const logoAlt = document.querySelector('img[class*="logo"], header img')?.getAttribute('alt');
+  const logoAlt = $('img[class*="logo"], header img').first().attr('alt');
   if (logoAlt && logoAlt.length < 50) return logoAlt;
   
-  // Fall back to domain name
   try {
     const hostname = new URL(url).hostname.replace('www.', '');
     const domainName = hostname.split('.')[0];
@@ -681,8 +609,7 @@ function extractBrandName(document: Document, url: string): string {
   }
 }
 
-function extractTagline(document: Document): string | null {
-  // Look for tagline in common locations
+function extractTagline($: CheerioAPI): string | null {
   const selectors = [
     '[class*="tagline"]',
     '[class*="slogan"]',
@@ -693,8 +620,8 @@ function extractTagline(document: Document): string | null {
   ];
   
   for (const selector of selectors) {
-    const el = document.querySelector(selector);
-    const text = el?.textContent?.trim() || el?.getAttribute('content');
+    const el = $(selector).first();
+    const text = el.text().trim() || el.attr('content');
     if (text && text.length > 10 && text.length < 150) {
       return text;
     }
@@ -703,7 +630,7 @@ function extractTagline(document: Document): string | null {
   return null;
 }
 
-function extractLogo(document: Document, baseUrl: URL): string | null {
+function extractLogo($: CheerioAPI, baseUrl: URL): string | null {
   const selectors = [
     'img[class*="logo"]',
     'img[alt*="logo" i]',
@@ -715,16 +642,17 @@ function extractLogo(document: Document, baseUrl: URL): string | null {
   ];
   
   for (const selector of selectors) {
-    const img = document.querySelector(selector) as HTMLImageElement;
-    if (img?.src) {
-      return resolveUrl(img.src, baseUrl);
+    const img = $(selector).first();
+    const src = img.attr('src');
+    if (src) {
+      return resolveUrl(src, baseUrl);
     }
   }
   
   return null;
 }
 
-function extractFavicon(document: Document, baseUrl: URL): string | null {
+function extractFavicon($: CheerioAPI, baseUrl: URL): string | null {
   const selectors = [
     'link[rel="icon"]',
     'link[rel="shortcut icon"]',
@@ -732,8 +660,7 @@ function extractFavicon(document: Document, baseUrl: URL): string | null {
   ];
   
   for (const selector of selectors) {
-    const link = document.querySelector(selector);
-    const href = link?.getAttribute('href');
+    const href = $(selector).first().attr('href');
     if (href) {
       return resolveUrl(href, baseUrl);
     }
@@ -749,11 +676,11 @@ interface ColorExtraction {
   all: string[];
 }
 
-function extractColorsWithPriority(document: Document, html: string): ColorExtraction {
+function extractColorsWithPriority($: CheerioAPI, html: string): ColorExtraction {
   const colorCounts: Record<string, number> = {};
   const hexRegex = /#[0-9A-Fa-f]{6}(?![0-9A-Fa-f])/g;
   
-  // Extract from CSS variables (often primary colors)
+  // CSS variables
   const cssVarColors: string[] = [];
   const cssVarRegex = /--(?:primary|brand|main|accent|secondary)[^:]*:\s*(#[0-9A-Fa-f]{6})/gi;
   let match;
@@ -761,19 +688,19 @@ function extractColorsWithPriority(document: Document, html: string): ColorExtra
     cssVarColors.push(match[1].toUpperCase());
   }
   
-  // Extract from inline styles (higher priority)
-  document.querySelectorAll('[style]').forEach(el => {
-    const style = el.getAttribute('style') || '';
+  // Inline styles
+  $('[style]').each((_, el) => {
+    const style = $(el).attr('style') || '';
     const matches = style.match(hexRegex);
     matches?.forEach(color => {
       const upper = color.toUpperCase();
-      colorCounts[upper] = (colorCounts[upper] || 0) + 2; // Higher weight
+      colorCounts[upper] = (colorCounts[upper] || 0) + 2;
     });
   });
   
-  // Extract from stylesheets
-  document.querySelectorAll('style').forEach(styleEl => {
-    const css = styleEl.textContent || '';
+  // Stylesheets
+  $('style').each((_, styleEl) => {
+    const css = $(styleEl).html() || '';
     const matches = css.match(hexRegex);
     matches?.forEach(color => {
       const upper = color.toUpperCase();
@@ -781,7 +708,6 @@ function extractColorsWithPriority(document: Document, html: string): ColorExtra
     });
   });
   
-  // Filter out common non-brand colors
   const excludeColors = ['#FFFFFF', '#000000', '#FFFFF', '#333333', '#666666', '#999999', '#CCCCCC', '#F5F5F5', '#EEEEEE'];
   
   const sortedColors = Object.entries(colorCounts)
@@ -789,7 +715,6 @@ function extractColorsWithPriority(document: Document, html: string): ColorExtra
     .sort((a, b) => b[1] - a[1])
     .map(([color]) => color);
   
-  // Prioritize CSS variable colors
   const primaryFromVars = cssVarColors.find(c => !excludeColors.includes(c));
   
   return {
@@ -806,43 +731,33 @@ interface ImageExtraction {
   all: string[];
 }
 
-function extractImagesWithContext(document: Document, baseUrl: URL): ImageExtraction {
+function extractImagesWithContext($: CheerioAPI, baseUrl: URL): ImageExtraction {
   const all: string[] = [];
   let hero: string | null = null;
   const banners: string[] = [];
   
-  // Find hero image
-  const heroSelectors = [
-    '.hero img',
-    '[class*="hero"] img',
-    '[class*="banner"] img',
-    'section:first-of-type img',
-    'header img',
-  ];
+  const heroSelectors = ['.hero img', '[class*="hero"] img', '[class*="banner"] img', 'section:first-of-type img', 'header img'];
   
   for (const selector of heroSelectors) {
-    const img = document.querySelector(selector) as HTMLImageElement;
-    if (img?.src) {
-      hero = resolveUrl(img.src, baseUrl);
+    const img = $(selector).first();
+    if (img.length) {
+      hero = resolveUrl(img.attr('src'), baseUrl);
       if (hero) break;
     }
   }
   
-  // Find banner images
-  document.querySelectorAll('[class*="banner"] img, [class*="slider"] img, [class*="carousel"] img').forEach(img => {
-    const src = resolveUrl((img as HTMLImageElement).src, baseUrl);
+  $('[class*="banner"] img, [class*="slider"] img, [class*="carousel"] img').each((_, img) => {
+    const src = resolveUrl($(img).attr('src'), baseUrl);
     if (src && !banners.includes(src)) {
       banners.push(src);
     }
   });
   
-  // Collect all meaningful images
-  document.querySelectorAll('img').forEach(img => {
-    const src = resolveUrl(img.getAttribute('src') || img.getAttribute('data-src'), baseUrl);
+  $('img').each((_, img) => {
+    const src = resolveUrl($(img).attr('src') || $(img).attr('data-src'), baseUrl);
     if (src && !all.includes(src)) {
-      // Skip tiny images, icons, and tracking pixels
-      const width = parseInt(img.getAttribute('width') || '100');
-      const height = parseInt(img.getAttribute('height') || '100');
+      const width = parseInt($(img).attr('width') || '100');
+      const height = parseInt($(img).attr('height') || '100');
       if (width >= 50 && height >= 50) {
         all.push(src);
       }
@@ -858,39 +773,30 @@ interface TextContent {
   usps: string[];
 }
 
-function extractTextContent(document: Document): TextContent {
+function extractTextContent($: CheerioAPI): TextContent {
   const headlines: string[] = [];
   const descriptions: string[] = [];
   const usps: string[] = [];
   
-  // Extract headlines
-  document.querySelectorAll('h1, h2, h3').forEach(h => {
-    const text = h.textContent?.trim();
+  $('h1, h2, h3').each((_, h) => {
+    const text = $(h).text().trim();
     if (text && text.length > 3 && text.length < 200) {
       headlines.push(text);
     }
   });
   
-  // Extract descriptions
-  document.querySelectorAll('p').forEach(p => {
-    const text = p.textContent?.trim();
+  $('p').each((_, p) => {
+    const text = $(p).text().trim();
     if (text && text.length > 40 && text.length < 500) {
       descriptions.push(text);
     }
   });
   
-  // Try to identify USPs
-  const uspSelectors = [
-    '[class*="feature"]',
-    '[class*="benefit"]',
-    '[class*="usp"]',
-    '[class*="highlight"]',
-    'li',
-  ];
+  const uspSelectors = ['[class*="feature"]', '[class*="benefit"]', '[class*="usp"]', '[class*="highlight"]', 'li'];
   
   uspSelectors.forEach(selector => {
-    document.querySelectorAll(selector).forEach(el => {
-      const text = el.textContent?.trim();
+    $(selector).each((_, el) => {
+      const text = $(el).text().trim();
       if (text && text.length > 10 && text.length < 100 && usps.length < 10) {
         if (!usps.includes(text)) {
           usps.push(text);
@@ -913,18 +819,15 @@ interface ContactInfo {
   social: Record<string, string>;
 }
 
-function extractContactInfo(document: Document, html: string): ContactInfo {
-  // Email
+function extractContactInfo($: CheerioAPI, html: string): ContactInfo {
   const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
   const emails = html.match(emailRegex);
   const email = emails?.[0] || null;
   
-  // Phone
   const phoneRegex = /(?:\+92|0)?[\s.-]?(?:3\d{2}|[1-9]\d{2})[\s.-]?\d{7}|\+?[\d\s.-]{10,}/g;
   const phones = html.match(phoneRegex);
   const phone = phones?.[0]?.trim() || null;
   
-  // Social links
   const social: Record<string, string> = {};
   const socialPatterns: Record<string, RegExp> = {
     facebook: /facebook\.com\/[^\s"'<>]+/i,
@@ -945,12 +848,12 @@ function extractContactInfo(document: Document, html: string): ContactInfo {
   return { email, phone, address: null, social };
 }
 
-function extractStructuredData(document: Document): unknown[] {
+function extractStructuredData($: CheerioAPI): unknown[] {
   const data: unknown[] = [];
   
-  document.querySelectorAll('script[type="application/ld+json"]').forEach(script => {
+  $('script[type="application/ld+json"]').each((_, script) => {
     try {
-      data.push(JSON.parse(script.textContent || ''));
+      data.push(JSON.parse($(script).html() || ''));
     } catch {
       // Invalid JSON
     }
@@ -959,23 +862,22 @@ function extractStructuredData(document: Document): unknown[] {
   return data;
 }
 
-function detectEcommerce(document: Document, products: ScrapedProduct[]): boolean {
-  // Check for e-commerce indicators
+function detectEcommerce($: CheerioAPI, products: ScrapedProduct[]): boolean {
   const indicators = [
     products.length > 0,
-    !!document.querySelector('[class*="cart"]'),
-    !!document.querySelector('[class*="checkout"]'),
-    !!document.querySelector('[class*="add-to-cart"]'),
-    !!document.querySelector('[class*="buy"]'),
-    !!document.querySelector('[class*="price"]'),
-    !!document.querySelector('[class*="shop"]'),
+    $('[class*="cart"]').length > 0,
+    $('[class*="checkout"]').length > 0,
+    $('[class*="add-to-cart"]').length > 0,
+    $('[class*="buy"]').length > 0,
+    $('[class*="price"]').length > 0,
+    $('[class*="shop"]').length > 0,
   ];
   
   return indicators.filter(Boolean).length >= 2;
 }
 
 function detectProductType(
-  document: Document, 
+  $: CheerioAPI, 
   products: ScrapedProduct[], 
   textContent: TextContent
 ): 'physical' | 'digital' | 'service' {
@@ -985,20 +887,17 @@ function detectProductType(
     ...products.map(p => p.name + ' ' + (p.description || '')),
   ].join(' ').toLowerCase();
   
-  // Physical product indicators
   const physicalIndicators = [
     /shipping/i, /delivery/i, /weight/i, /size/i, /dimensions/i,
     /package/i, /box/i, /bottle/i, /jar/i, /pack/i,
     /gram|kg|ml|liter|oz|lb/i,
   ];
   
-  // Digital product indicators
   const digitalIndicators = [
     /download/i, /instant access/i, /pdf/i, /ebook/i, /course/i,
     /subscription/i, /license/i, /software/i, /app/i,
   ];
   
-  // Service indicators
   const serviceIndicators = [
     /consultation/i, /appointment/i, /session/i, /service/i,
     /hour/i, /booking/i, /schedule/i, /hire/i,
