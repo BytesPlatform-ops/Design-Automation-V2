@@ -14,12 +14,13 @@ import { GeneratingStep } from '@/components/wizard/generating-step';
 import { ResultsStep } from '@/components/wizard/results-step';
 import { URLIdeasStep } from '@/components/wizard/url-ideas-step';
 import { URLResultsStep } from '@/components/wizard/url-results-step';
+import { BackgroundGenerator } from '@/components/wizard/background-generator';
 import { Progress } from '@/components/ui/progress';
 import { BusinessDetails, MarketingIdea, GeneratedAd, BrandAssets, AspectRatio, URLBrandAnalysis, URLAdIdea, URLGeneratedAd } from '@/types';
 import { ExtractedBrandInfo, brandInfoToBusinessDetails } from '@/lib/brand-analyzer';
 
-// Entry flow type: 'url' for website scraping, 'manual' for traditional flow
-type EntryFlow = 'url' | 'manual' | null;
+// Entry flow type: 'url' for website scraping, 'manual' for traditional flow, 'background' for no-text backgrounds
+type EntryFlow = 'url' | 'manual' | 'background' | null;
 
 // Steps for manual flow (existing)
 const MANUAL_STEPS = [
@@ -77,6 +78,11 @@ export default function CreatePage() {
 
   const handleChooseManual = () => {
     setEntryFlow('manual');
+    setCurrentStep(1);
+  };
+
+  const handleChooseBackground = () => {
+    setEntryFlow('background');
     setCurrentStep(1);
   };
 
@@ -496,6 +502,7 @@ export default function CreatePage() {
           <EntryChoiceStep 
             onChooseURL={handleChooseURL}
             onChooseManual={handleChooseManual}
+            onChooseBackground={handleChooseBackground}
           />
         </div>
       )}
@@ -503,33 +510,35 @@ export default function CreatePage() {
       {/* Flow in progress - Show progress bar and steps */}
       {entryFlow && (
         <>
-          {/* Progress Header */}
-          <div className="mb-6 md:mb-8">
-            {/* Mobile: Show current step only */}
-            <div className="flex md:hidden justify-between items-center mb-2">
-              <span className="text-sm font-medium text-primary">
-                Step {currentStep}: {STEPS[currentStep - 1]?.name}
-              </span>
-              <span className="text-sm text-muted-foreground">
-                {currentStep}/{STEPS.length}
-              </span>
+          {/* Progress Header - Only for URL and Manual flows */}
+          {entryFlow !== 'background' && (
+            <div className="mb-6 md:mb-8">
+              {/* Mobile: Show current step only */}
+              <div className="flex md:hidden justify-between items-center mb-2">
+                <span className="text-sm font-medium text-primary">
+                  Step {currentStep}: {STEPS[currentStep - 1]?.name}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {currentStep}/{STEPS.length}
+                </span>
+              </div>
+              
+              {/* Desktop: Show all steps */}
+              <div className="hidden md:flex justify-between mb-2">
+                {STEPS.map((step) => (
+                  <div 
+                    key={step.id}
+                    className={`text-sm font-medium ${
+                      currentStep >= step.id ? 'text-primary' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {step.name}
+                  </div>
+                ))}
+              </div>
+              <Progress value={progress} className="h-2" />
             </div>
-            
-            {/* Desktop: Show all steps */}
-            <div className="hidden md:flex justify-between mb-2">
-              {STEPS.map((step) => (
-                <div 
-                  key={step.id}
-                  className={`text-sm font-medium ${
-                    currentStep >= step.id ? 'text-primary' : 'text-muted-foreground'
-                  }`}
-                >
-                  {step.name}
-                </div>
-              ))}
-            </div>
-            <Progress value={progress} className="h-2" />
-          </div>
+          )}
 
           {/* Error Display */}
           {error && (
@@ -662,6 +671,11 @@ export default function CreatePage() {
                   />
                 )}
               </>
+            )}
+
+            {/* ===== BACKGROUND FLOW (NO TEXT - FOR DESIGNERS) ===== */}
+            {entryFlow === 'background' && (
+              <BackgroundGenerator onBack={handleBackToChoice} />
             )}
           </div>
         </>

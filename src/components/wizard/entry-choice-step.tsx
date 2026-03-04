@@ -1,13 +1,14 @@
 'use client';
 
-import { Globe, FileText, Sparkles, Zap, ArrowRight } from 'lucide-react';
+import { Globe, FileText, Sparkles, Zap, ArrowRight, Image, Palette } from 'lucide-react';
 
 interface EntryChoiceStepProps {
   onChooseURL: () => void;
   onChooseManual: () => void;
+  onChooseBackground?: () => void;
 }
 
-export function EntryChoiceStep({ onChooseURL, onChooseManual }: EntryChoiceStepProps) {
+export function EntryChoiceStep({ onChooseURL, onChooseManual, onChooseBackground }: EntryChoiceStepProps) {
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -26,7 +27,7 @@ export function EntryChoiceStep({ onChooseURL, onChooseManual }: EntryChoiceStep
       </div>
 
       {/* Choice Cards */}
-      <div className="grid md:grid-cols-2 gap-6 mt-8">
+      <div className="grid md:grid-cols-3 gap-6 mt-8">
         {/* Option A: Website URL */}
         <button
           onClick={onChooseURL}
@@ -121,6 +122,58 @@ export function EntryChoiceStep({ onChooseURL, onChooseManual }: EntryChoiceStep
             </span>
           </div>
         </button>
+
+        {/* Option C: Background Only (No Text) */}
+        {onChooseBackground && (
+          <button
+            onClick={onChooseBackground}
+            className="group relative flex flex-col items-start p-6 bg-gradient-to-br from-violet-500/5 to-purple-500/10 border-2 border-violet-500/20 rounded-2xl text-left transition-all duration-300 hover:border-violet-500/50 hover:shadow-lg hover:shadow-violet-500/10 hover:-translate-y-1"
+          >
+            {/* 4K Badge */}
+            <div className="absolute -top-3 left-6 px-3 py-1 bg-gradient-to-r from-violet-500 to-purple-500 text-white text-xs font-semibold rounded-full">
+              🎨 For Designers
+            </div>
+            
+            {/* Icon */}
+            <div className="flex items-center justify-center w-14 h-14 bg-violet-500/10 rounded-xl mb-4 group-hover:bg-violet-500/20 transition-colors mt-3">
+              <Image className="w-7 h-7 text-violet-500" />
+            </div>
+
+            {/* Content */}
+            <h3 className="text-xl font-semibold mb-2 flex items-center gap-2">
+              Background Only
+              <ArrowRight className="w-4 h-4 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+            </h3>
+            
+            <p className="text-muted-foreground text-sm mb-4">
+              Generate a stunning 4K marketing background without any text. 
+              Perfect for designers who want to add their own typography.
+            </p>
+
+            {/* Features */}
+            <ul className="space-y-2 text-sm">
+              <li className="flex items-center gap-2 text-muted-foreground">
+                <Palette className="w-4 h-4 text-violet-500" />
+                4K ultra-high resolution
+              </li>
+              <li className="flex items-center gap-2 text-muted-foreground">
+                <Palette className="w-4 h-4 text-violet-500" />
+                No text - pure visuals
+              </li>
+              <li className="flex items-center gap-2 text-muted-foreground">
+                <Palette className="w-4 h-4 text-violet-500" />
+                Product image optional
+              </li>
+            </ul>
+
+            {/* Time estimate */}
+            <div className="mt-4 pt-4 border-t border-violet-500/10 w-full">
+              <span className="text-xs text-muted-foreground">
+                Generation time: <span className="text-violet-500 font-medium">~30 seconds</span>
+              </span>
+            </div>
+          </button>
+        )}
       </div>
 
       {/* Bottom info */}
