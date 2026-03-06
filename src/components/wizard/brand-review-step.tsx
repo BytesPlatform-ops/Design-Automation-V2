@@ -265,11 +265,11 @@ export function BrandReviewStep({
             <div className="flex gap-2">
               <div
                 className="w-10 h-10 rounded-lg border"
-                style={{ backgroundColor: brandInfo.primaryColor }}
+                style={{ backgroundColor: brandInfo.primaryColor || 'transparent' }}
               />
               <Input
                 id="primaryColor"
-                value={brandInfo.primaryColor}
+                value={brandInfo.primaryColor || ''}
                 onChange={(e) => updateField('primaryColor', e.target.value)}
                 placeholder="#000000"
                 disabled={editingSection !== 'visual'}
@@ -283,11 +283,11 @@ export function BrandReviewStep({
             <div className="flex gap-2">
               <div
                 className="w-10 h-10 rounded-lg border"
-                style={{ backgroundColor: brandInfo.secondaryColor }}
+                style={{ backgroundColor: brandInfo.secondaryColor || 'transparent' }}
               />
               <Input
                 id="secondaryColor"
-                value={brandInfo.secondaryColor}
+                value={brandInfo.secondaryColor || ''}
                 onChange={(e) => updateField('secondaryColor', e.target.value)}
                 placeholder="#ffffff"
                 disabled={editingSection !== 'visual'}

@@ -190,6 +190,8 @@ export interface URLBrandAnalysis {
     suggestedAdAngle: string;
   }>;
   productType: ProductType;
+  // Sub-type for services: food-restaurant has physical products (meals), intangible needs selling points
+  serviceSubType?: 'food-restaurant' | 'intangible';
   isEcommerce: boolean;
   adRecommendations: {
     bestPlatforms: string[];

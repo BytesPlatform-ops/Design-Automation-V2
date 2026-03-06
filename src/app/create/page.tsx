@@ -269,6 +269,7 @@ export default function CreatePage() {
           },
           logoUrl: extractedBrandInfo?.logoUrl,
           productType: urlBrandAnalysis.productType || 'physical',
+          serviceSubType: urlBrandAnalysis.serviceSubType,
           industry: urlBrandAnalysis.industry || 'General',
         }),
       });

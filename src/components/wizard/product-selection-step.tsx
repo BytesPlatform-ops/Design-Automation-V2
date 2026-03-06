@@ -28,6 +28,19 @@ interface ProductSelectionStepProps {
   onBack: () => void;
 }
 
+// Helper to check if price is valid (not 0, rs.0, free, empty, etc.)
+const isValidPrice = (price: string | null | undefined): boolean => {
+  if (!price) return false;
+  const normalizedPrice = price.toLowerCase().replace(/[^a-z0-9.]/g, '');
+  // Invalid if: empty, "0", "rs0", "rs.0", "free", "0.00", etc.
+  if (normalizedPrice === '' || normalizedPrice === '0' || normalizedPrice === 'rs0' || 
+      normalizedPrice === 'free' || normalizedPrice === '0.00' || normalizedPrice === '000' ||
+      /^rs?\\.?0+$/.test(normalizedPrice)) {
+    return false;
+  }
+  return true;
+};
+
 export function ProductSelectionStep({
   brandInfo,
   onSubmit,
@@ -120,7 +133,7 @@ export function ProductSelectionStep({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <Label className="text-base font-medium">
-              Products ({selectedCount}/{Math.min(products.length, 5)} selected)
+              {brandInfo.productType === 'service' ? 'Services' : 'Products'} ({selectedCount}/{Math.min(products.length, 5)} selected)
             </Label>
             <div className="flex gap-2">
               <Button
@@ -182,7 +195,7 @@ export function ProductSelectionStep({
 
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm truncate">{product.name}</p>
-                    {product.price && (
+                    {product.price && isValidPrice(product.price) && (
                       <Badge variant="secondary" className="text-xs mt-1">
                         {product.price}
                       </Badge>

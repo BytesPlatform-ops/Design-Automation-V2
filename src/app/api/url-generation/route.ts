@@ -8,8 +8,8 @@ import {
   uploadImageToStorage 
 } from '@/lib/supabase-client';
 
-// Temporary user ID - in production, get from auth context
-const TEMP_USER_ID = 'url-flow-user-' + (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.slice(0, 8) || 'default');
+// Temporary user ID - same as dashboard so ads appear in My Projects
+const TEMP_USER_ID = 'temp-user-' + (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.slice(0, 8) || 'default');
 
 // Lazy initialization
 let genAI: GoogleGenerativeAI | null = null;
@@ -45,13 +45,14 @@ interface URLGenerationRequest {
   };
   logoUrl?: string;
   productType?: 'physical' | 'digital' | 'service';
+  serviceSubType?: 'food-restaurant' | 'saas-platform' | 'intangible';
   industry?: string;
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json() as URLGenerationRequest;
-    const { ideas, aspectRatio = '1:1', brandName, brandColors, logoUrl, productType = 'physical', industry = 'General' } = body;
+    const { ideas, aspectRatio = '1:1', brandName, brandColors, logoUrl, productType = 'physical', serviceSubType, industry = 'General' } = body;
 
     if (!ideas?.length) {
       return NextResponse.json({ error: 'No ideas provided' }, { status: 400 });
@@ -78,7 +79,8 @@ export async function POST(req: Request) {
           brandName,
           brandColors,
           logoUrl,
-          productType
+          productType,
+          serviceSubType
         );
         generatedAds.push(ad);
       } catch (error) {
@@ -177,12 +179,31 @@ function getImageDimensions(aspectRatio: string): { width: number; height: numbe
   }
 }
 
-async function fetchImageAsBase64(url: string): Promise<{ data: string; mimeType: string } | null> {
+async function fetchImageAsBase64(url: string | null | undefined): Promise<{ data: string; mimeType: string } | null> {
+  // Validate URL before attempting fetch
+  if (!url || url === 'null' || url === 'undefined' || !url.startsWith('http')) {
+    console.log('[URL-Generation] Invalid image URL, skipping fetch:', url);
+    return null;
+  }
+  
+  // Skip SVG images - Gemini doesn't support them
+  if (url.toLowerCase().endsWith('.svg') || url.includes('.svg?')) {
+    console.log('[URL-Generation] SVG image not supported, skipping:', url);
+    return null;
+  }
+  
   try {
     const response = await fetch(url);
     if (!response.ok) return null;
     
     const contentType = response.headers.get('content-type') || 'image/jpeg';
+    
+    // Skip SVG content type
+    if (contentType.includes('svg')) {
+      console.log('[URL-Generation] SVG content type not supported, skipping');
+      return null;
+    }
+    
     const arrayBuffer = await response.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString('base64');
     
@@ -202,7 +223,8 @@ async function generateAdFromIdea(
   brandName: string,
   brandColors: { primary: string; secondary: string; accent: string },
   logoUrl?: string,
-  productType: 'physical' | 'digital' | 'service' = 'physical'
+  productType: 'physical' | 'digital' | 'service' = 'physical',
+  serviceSubType?: 'food-restaurant' | 'saas-platform' | 'intangible'
 ): Promise<GeneratedURLAd> {
   const { width, height } = getImageDimensions(aspectRatio);
   
@@ -248,7 +270,7 @@ async function generateAdFromIdea(
   }
 
   // Build the prompt
-  const prompt = buildAdPrompt(idea, brandName, brandColors, width, height, !!idea.productImage, productType);
+  const prompt = buildAdPrompt(idea, brandName, brandColors, width, height, !!idea.productImage, productType, serviceSubType);
   parts.push({ text: prompt });
 
   console.log(`[URL-Generation] Generating ad for: ${idea.productName}`);
@@ -299,7 +321,8 @@ function buildAdPrompt(
   width: number,
   height: number,
   hasProductImage: boolean,
-  productType: 'physical' | 'digital' | 'service' = 'physical'
+  productType: 'physical' | 'digital' | 'service' = 'physical',
+  serviceSubType?: 'food-restaurant' | 'saas-platform' | 'intangible'
 ): string {
   // Determine aspect ratio string
   const aspectRatio = width === height ? '1:1' : width > height ? '16:9' : '9:16';
@@ -307,11 +330,33 @@ function buildAdPrompt(
   // Terminology based on business type
   const isService = productType === 'service';
   const isDigital = productType === 'digital';
-  const itemTerm = isService ? 'service' : isDigital ? 'digital product' : 'product';
-  const itemTermCap = isService ? 'Service' : isDigital ? 'Digital Product' : 'Product';
+  // Food services should be treated like physical products
+  const isFoodService = isService && serviceSubType === 'food-restaurant';
+  // SaaS/platforms need feature highlights
+  const isSaaSService = isService && serviceSubType === 'saas-platform';
+  // Intangible services (consulting, etc.)
+  const isIntangibleService = isService && !isFoodService && !isSaaSService;
+  // Should we include key features in the ad?
+  const needsKeyFeatures = isIntangibleService || isSaaSService;
   
-  // Price display instruction - PREMIUM STYLING
-  const priceInstruction = idea.productPrice 
+  const itemTerm = isFoodService ? 'menu item' : isSaaSService ? 'platform' : isService ? 'service' : isDigital ? 'digital product' : 'product';
+  const itemTermCap = isFoodService ? 'Menu Item' : isSaaSService ? 'Platform' : isService ? 'Service' : isDigital ? 'Digital Product' : 'Product';
+  
+  // Helper to check if price is valid (not 0, rs.0, free, empty, etc.)
+  const isValidPrice = (price: string | null | undefined): boolean => {
+    if (!price) return false;
+    const normalizedPrice = price.toLowerCase().replace(/[^a-z0-9.]/g, '');
+    // Invalid if: empty, "0", "rs0", "rs.0", "free", "0.00", etc.
+    if (normalizedPrice === '' || normalizedPrice === '0' || normalizedPrice === 'rs0' || 
+        normalizedPrice === 'free' || normalizedPrice === '0.00' || normalizedPrice === '000' ||
+        /^rs?\.?0+$/.test(normalizedPrice)) {
+      return false;
+    }
+    return true;
+  };
+  
+  // Price display instruction - PREMIUM STYLING (only if valid price)
+  const priceInstruction = isValidPrice(idea.productPrice)
     ? `
 === PRICE DISPLAY: "${idea.productPrice}" ===
 CRITICAL: Design the price as a PREMIUM, PROFESSIONAL element:
@@ -326,48 +371,117 @@ CRITICAL: Design the price as a PREMIUM, PROFESSIONAL element:
 - Typography: Clean, readable, premium-feeling font
 - Color: Use brand accent color (${brandColors.accent}) or complementary tone
 - NO cheap clip-art, NO starburst shapes, NO carnival-style pricing`
-    : '';
+    : `
+⚠️ NO PRICE AVAILABLE - DO NOT DISPLAY ANY PRICE ON THIS AD.
+- Do NOT write "Price: null", "Price: [null]", "null", or any placeholder
+- Simply skip the price element entirely
+- If you need to fill space, use the CTA button or leave breathing room`;
 
   // Visualization instruction changes based on product type
   let visualizationInstruction: string;
   
-  if (isService) {
+  if (isFoodService) {
+    // Food/Restaurant services - treat like physical products, show the FOOD
+    visualizationInstruction = hasProductImage
+      ? `
+=== FOOD PRODUCT IMAGE PROVIDED (UPLOADED ABOVE) ===
+CRITICAL: The reference image shows "${idea.productName}" - a FOOD ITEM.
+- Use this EXACT food item as the HERO of the ad
+- Style it with professional food photography techniques
+- Add complementary elements: steam, garnishes, utensils, table setting
+- Make it look ABSOLUTELY DELICIOUS and irresistible
+- ⚠️ DO NOT include people eating or chefs - AI struggles with realistic humans
+- Focus 100% on the FOOD - it is the star of this ad`
+      : `
+=== FOOD VISUALIZATION ===
+Create a MOUTH-WATERING visualization of "${idea.productName}":
+- Professional food photography style
+- Beautifully plated dish as the HERO
+- Steam rising, glistening textures, vibrant colors
+- Warm, appetizing golden lighting
+- Fresh ingredients arranged around the main dish
+- Elegant table setting, wooden/marble surface
+- ⚠️ NO people, no chefs, no hands - only the FOOD
+- Make viewers HUNGRY just looking at it
+
+The FOOD is the product. Make it look IRRESISTIBLE.`;
+  } else if (isIntangibleService) {
+    // IT, consulting, education services - need selling points, no physical product
     visualizationInstruction = hasProductImage
       ? `
 === SERVICE VISUAL PROVIDED (UPLOADED ABOVE) ===
 CRITICAL: The reference image represents "${idea.productName}" service.
 - Use this image as INSPIRATION for the ad's visual style
 - Create a scene showing the OUTCOME or BENEFIT of this service
-- Focus on transformation, satisfaction, or results
-- Show happy people experiencing the service or its aftermath
-- Make viewers FEEL the benefit of using this service`
+- ⚠️ DO NOT include people, faces, hands or human figures - AI struggles with realistic humans
+- Focus on: tools, environments, results, objects relevant to THIS specific service`
+      : `
+=== INTANGIBLE SERVICE VISUALIZATION ===
+⚠️ CRITICAL RULE: DO NOT include people, faces, hands, or human figures.
+AI-generated humans often look artificial. Create compelling visuals using OBJECTS and ENVIRONMENTS.
+
+Adapt visuals to "${idea.productName}" service type:
+
+🧹 CLEANING/HOME: Sparkling spaces, organized rooms, cleaning products
+💼 BUSINESS/CONSULTING: Meeting rooms, charts, professional workspaces, documents (no people)
+🏥 HEALTH/WELLNESS: Spa environments, wellness equipment, calming spaces
+🎓 EDUCATION: Books, certificates, learning materials, classrooms (no students)
+💻 TECH/IT: Servers, code screens, network diagrams, modern office setups
+📦 DELIVERY/LOGISTICS: Packages, delivery boxes, maps, warehouses
+
+Show the OUTCOME, TOOLS, and ENVIRONMENT of the service.`;
+  } else if (isService) {
+    // Generic service fallback
+    visualizationInstruction = hasProductImage
+      ? `
+=== SERVICE VISUAL PROVIDED (UPLOADED ABOVE) ===
+CRITICAL: The reference image represents "${idea.productName}" service.
+- Use this image as INSPIRATION for the ad's visual style
+- Create a scene showing the OUTCOME or BENEFIT of this service
+- ⚠️ DO NOT include people, faces, hands or human figures - AI struggles with realistic humans
+- Focus on: tools, environments, results, objects relevant to THIS specific service`
       : `
 === SERVICE VISUALIZATION ===
-Create a compelling visual representation of "${idea.productName}" service:
-- Show PEOPLE benefiting from or experiencing the service
-- Focus on the TRANSFORMATION or OUTCOME — the "after" state
-- Use lifestyle imagery that conveys trust, professionalism, satisfaction
-- Abstract representations are okay (icons, clean graphics) if they convey the benefit
-- The visual should make people WANT this service in their lives`;
+⚠️ CRITICAL RULE: DO NOT include people, faces, hands, or human figures.
+AI-generated humans often look artificial. Create compelling visuals using OBJECTS and ENVIRONMENTS.
+
+Adapt visuals to "${idea.productName}" service type:
+
+🍽️ FOOD/RESTAURANT: Beautifully plated dishes, steam rising, fresh ingredients, table settings (no diners/chefs)
+🧹 CLEANING/HOME: Sparkling spaces, organized rooms, cleaning products
+💼 BUSINESS/CONSULTING: Meeting rooms, charts, professional workspaces, documents (no people)
+🏥 HEALTH/WELLNESS: Spa environments, wellness equipment, calming spaces
+🎓 EDUCATION: Books, certificates, learning materials, classrooms (no students)
+💻 TECH/IT: Servers, code screens, network diagrams, modern office setups
+📦 DELIVERY/LOGISTICS: Packages, delivery boxes, maps, warehouses
+
+CHOOSE visuals that match THIS service's industry.
+Show the OUTCOME, TOOLS, and ENVIRONMENT of the service.`;
   } else if (isDigital) {
     visualizationInstruction = hasProductImage
       ? `
 === DIGITAL PRODUCT VISUAL PROVIDED (UPLOADED ABOVE) ===
 CRITICAL: The reference image shows "${idea.productName}" digital product.
 - Use this as reference for the product's branding and style
-- Show the digital product on devices (laptop, tablet, phone mockup)
+- Show the digital product on devices (laptop, tablet, phone mockup) - NO hands holding them
 - Create a tech-forward, modern aesthetic
-- Focus on the TRANSFORMATION the user will experience`
+- ⚠️ DO NOT include people, faces, or hands - AI struggles with realistic humans
+- Focus on the interface, features, and value the product delivers`
       : `
 === DIGITAL PRODUCT VISUALIZATION ===
+⚠️ CRITICAL RULE: DO NOT include people, faces, hands, or human figures.
+AI-generated humans often look artificial.
+
 Create a stunning visualization for "${idea.productName}" digital product:
-- Show the product on DEVICE MOCKUPS (laptop, phone, tablet screens)
-- Use clean, modern, tech-forward aesthetics
-- Include UI previews, dashboards, or content glimpses if relevant
-- For courses/ebooks: show floating modules, book covers, or knowledge graphics
-- For software: show sleek interface, productivity gains, or workflow improvements
-- Add subtle tech elements: gradients, glows, floating 3D elements
-- Focus on the TRANSFORMATION and VALUE the user gains`;
+- DEVICE MOCKUPS: laptop, phone, tablet screens floating or on desk (NO hands holding them)
+- INTERFACE PREVIEW: Key features, dashboards, or content previews
+- FLOATING ELEMENTS: Book covers, course modules, software icons in space
+- 3D ABSTRACT: Futuristic elements, data visualization, clean tech aesthetics
+- ENVIRONMENT: Tech workspace with devices (no people working)
+- TRANSFORMATION SYMBOLS: Progress bars, achievement badges, before/after icons
+- GLOW EFFECTS: Gradients, light effects, premium tech feel
+
+Show the VALUE and TRANSFORMATION the product delivers through OBJECTS, not people.`;
   } else {
     visualizationInstruction = hasProductImage
       ? `
@@ -386,11 +500,15 @@ Create a stunning, photorealistic representation of "${idea.productName}".
 - The product should look like it belongs in a high-end advertisement`;
   }
   
-  const businessTypeDesc = isService 
-    ? 'SERVICE COMPANY (focus on outcomes & benefits)' 
-    : isDigital 
-      ? 'DIGITAL PRODUCT (focus on transformation, convenience, knowledge)' 
-      : 'PHYSICAL PRODUCT (focus on the tangible item)';
+  const businessTypeDesc = isFoodService 
+    ? 'FOOD/RESTAURANT (treat menu items like physical products - show the FOOD)' 
+    : isIntangibleService
+      ? 'INTANGIBLE SERVICE (no physical products - show selling points)'
+      : isService 
+        ? 'SERVICE COMPANY (focus on outcomes & benefits)' 
+        : isDigital 
+          ? 'DIGITAL PRODUCT (focus on transformation, convenience, knowledge)' 
+          : 'PHYSICAL PRODUCT (focus on the tangible item)';
 
   return `You are a legendary advertising creative director. Your ads have won Cannes Lions and your campaigns achieve 10x industry engagement. Create a SCROLL-STOPPING advertisement.
 
@@ -438,6 +556,27 @@ SUBHEADLINE: "${idea.subheadline}"
 • Support the message, add value
 • Smaller but still readable at scroll-speed
 
+${needsKeyFeatures && idea.keyFeatures && idea.keyFeatures.length > 0 ? `
+=== KEY SELLING POINTS TO DISPLAY ON THE AD ===
+${idea.keyFeatures.map((feature) => `• ${feature}`).join('\n')}
+
+⚠️ CRITICAL: You have FULL CREATIVE FREEDOM on how to present these — think like a TOP-TIER GRAPHIC DESIGNER:
+- Design them as BEAUTIFUL VISUAL ELEMENTS, NOT a plain text list with checkmarks
+- Options for PREMIUM presentation:
+  1. STYLED FEATURE CARDS: Glass-morphism panels with subtle blur and border
+  2. ELEGANT INFO STRIPS: Horizontal bands with icon + text
+  3. GRADIENT TAGS: Modern pill shapes with brand colors
+  4. ICON-PAIRED LABELS: Custom icons (not basic checkmarks) with elegant typography
+  5. FLOATING ELEMENTS: 3D cards or badges that feel part of the composition
+  6. MINIMAL TYPOGRAPHY: Clean sans-serif with subtle color accents
+
+- They should look like a DESIGNED ELEMENT of the ad — NOT a plain text list pasted on top
+- Match the overall ad aesthetic and color scheme
+- Must be readable but VISUALLY INTEGRATED into the composition
+- Use brand colors for accents (${brandColors.secondary} or ${brandColors.accent})
+- Position: Lower portion of ad, NOT competing with headline
+- Include ALL points exactly as written
+` : ''}
 === CTA BUTTON: "${idea.callToAction}" ===
 CRITICAL: Design a PREMIUM, MODERN call-to-action button:
 - DO NOT use ugly yellow boxes with black borders
@@ -455,9 +594,9 @@ CRITICAL: Design a PREMIUM, MODERN call-to-action button:
 - Size: Prominent but proportional to the overall design
 
 === COMPOSITION PRINCIPLES ===
-1. VISUAL HIERARCHY: ${isService ? 'People/Scene' : isDigital ? 'Device/Interface' : 'Product'} → Headline → Supporting text → CTA (in order of dominance)
+1. VISUAL HIERARCHY: ${isFoodService ? 'Food/Dish' : isIntangibleService ? 'Typography/Scene/Objects' : isDigital ? 'Device/Interface' : 'Product'} → Headline → Supporting text → CTA (in order of dominance)
 2. BREATHING ROOM: Don't crowd elements — premium ads have space
-3. FOCAL POINT: One clear hero element (${isService ? 'the person or scene showing the benefit' : isDigital ? 'the device mockup or transformation visual' : 'the product'})
+3. FOCAL POINT: One clear hero element (${isFoodService ? 'the FOOD dish — make it irresistible, NO people' : isIntangibleService ? 'typography, abstract graphics, or professional objects — NO people' : isDigital ? 'the device mockup or transformation visual' : 'the product'})
 4. COLOR HARMONY: All colors work together, nothing clashes
 5. CONTRAST: Text is ALWAYS readable — if dark bg, light text and vice versa
 

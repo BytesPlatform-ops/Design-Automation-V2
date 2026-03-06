@@ -47,6 +47,23 @@ export interface EnhancedScrapedData {
   descriptions: string[];
   uniqueSellingPoints: string[];
   
+  // Landing Page Content (NEW)
+  landingPageContent: {
+    heroHeadline: string | null;
+    heroSubheadline: string | null;
+    ctaText: string[];
+    valuePropositions: string[];
+    serviceDescriptions: string[];
+    pricingInfo: Array<{
+      planName: string;
+      price: string | null;
+      features: string[];
+    }>;
+    testimonials: string[];
+    statsNumbers: Array<{ label: string; value: string }>;
+    featuresList: Array<{ title: string; description: string | null }>;
+  };
+  
   // Business Info
   contactEmail: string | null;
   phone: string | null;
@@ -63,6 +80,7 @@ export interface EnhancedScrapedData {
   isEcommerce: boolean;
   hasProducts: boolean;
   estimatedProductType: 'physical' | 'digital' | 'service';
+  websiteCategory: 'ecommerce' | 'restaurant' | 'saas' | 'agency' | 'portfolio' | 'landing-page' | 'corporate' | 'unknown';
 }
 
 /**
@@ -109,6 +127,9 @@ export async function enhancedScrapeWebsite(url: string): Promise<EnhancedScrape
   // Extract text content
   const textContent = extractTextContent(mainPageData.$);
   
+  // Extract landing page content (NEW - for service/SaaS sites)
+  const landingPageContent = extractLandingPageContent(mainPageData.$);
+  
   // Extract contact info
   const contactInfo = extractContactInfo(mainPageData.$, mainPageData.html);
   
@@ -118,6 +139,9 @@ export async function enhancedScrapeWebsite(url: string): Promise<EnhancedScrape
   // Detect business type
   const isEcommerce = detectEcommerce(mainPageData.$, allProducts);
   const estimatedProductType = detectProductType(mainPageData.$, allProducts, textContent);
+  
+  // Detect website category (NEW)
+  const websiteCategory = detectWebsiteCategory(mainPageData.$, allProducts, textContent, landingPageContent);
   
   // Extract favicon
   const favicon = extractFavicon(mainPageData.$, mainPageData.baseUrl);
@@ -149,6 +173,8 @@ export async function enhancedScrapeWebsite(url: string): Promise<EnhancedScrape
     descriptions: textContent.descriptions,
     uniqueSellingPoints: textContent.usps,
     
+    landingPageContent,
+    
     contactEmail: contactInfo.email,
     phone: contactInfo.phone,
     address: contactInfo.address,
@@ -162,6 +188,7 @@ export async function enhancedScrapeWebsite(url: string): Promise<EnhancedScrape
     isEcommerce,
     hasProducts: allProducts.length > 0,
     estimatedProductType,
+    websiteCategory,
   };
 }
 
@@ -268,6 +295,28 @@ function extractProducts($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
     } catch {
       // Selector might not be valid
     }
+  }
+  
+  // Try Next.js __NEXT_DATA__ (common in modern sites like KFC, etc.)
+  if (products.length < 3) {
+    const nextDataProducts = extractProductsFromNextData($, baseUrl);
+    nextDataProducts.forEach(p => {
+      if (!seenNames.has(p.name.toLowerCase())) {
+        seenNames.add(p.name.toLowerCase());
+        products.push(p);
+      }
+    });
+  }
+  
+  // Try embedded JSON in script tags (Redux state, Apollo cache, etc.)
+  if (products.length < 3) {
+    const embeddedProducts = extractProductsFromEmbeddedJSON($, baseUrl);
+    embeddedProducts.forEach(p => {
+      if (!seenNames.has(p.name.toLowerCase())) {
+        seenNames.add(p.name.toLowerCase());
+        products.push(p);
+      }
+    });
   }
   
   // Try Lightspeed/Ecwid embedded state
@@ -550,6 +599,157 @@ function extractProductsFromLightspeedState($: CheerioAPI, baseUrl: URL): Scrape
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+}
+
+/**
+ * Extract products from Next.js __NEXT_DATA__ script tag
+ * Many modern sites (including KFC, food delivery apps) use Next.js
+ */
+function extractProductsFromNextData($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
+  const products: ScrapedProduct[] = [];
+  
+  try {
+    const nextDataScript = $('#__NEXT_DATA__').html();
+    if (!nextDataScript) return products;
+    
+    const nextData = JSON.parse(nextDataScript);
+    
+    // Recursively search for product-like objects
+    const findProducts = (obj: unknown, depth = 0): void => {
+      if (depth > 10 || !obj) return;
+      
+      if (Array.isArray(obj)) {
+        obj.forEach(item => findProducts(item, depth + 1));
+        return;
+      }
+      
+      if (typeof obj !== 'object') return;
+      
+      const record = obj as Record<string, unknown>;
+      
+      // Check if this looks like a product
+      const hasName = typeof record.name === 'string' || typeof record.title === 'string' || typeof record.productName === 'string';
+      const hasPrice = record.price !== undefined || record.amount !== undefined || record.formattedPrice !== undefined;
+      const hasImage = typeof record.image === 'string' || typeof record.imageUrl === 'string' || typeof record.thumbnail === 'string' || typeof record.img === 'string';
+      
+      if (hasName && (hasPrice || hasImage)) {
+        const name = (record.name || record.title || record.productName) as string;
+        if (name && name.length > 2 && name.length < 200) {
+          const price = record.formattedPrice || record.price || record.amount;
+          const priceStr = price ? (typeof price === 'number' ? `Rs${price}` : String(price)) : null;
+          
+          const image = (record.image || record.imageUrl || record.thumbnail || record.img || record.photo || record.imageURL) as string | undefined;
+          const resolvedImage = image ? resolveUrl(image, baseUrl) : null;
+          
+          // Avoid duplicates
+          if (!products.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+            products.push({
+              name,
+              price: priceStr,
+              originalPrice: null,
+              currency: priceStr?.includes('Rs') ? 'PKR' : null,
+              image: resolvedImage,
+              images: resolvedImage ? [resolvedImage] : [],
+              description: typeof record.description === 'string' ? record.description.slice(0, 300) : null,
+              category: typeof record.category === 'string' ? record.category : null,
+              variants: [],
+              inStock: true,
+              url: typeof record.url === 'string' ? resolveUrl(record.url, baseUrl) : null,
+            });
+          }
+        }
+      }
+      
+      // Recurse into object properties
+      Object.values(record).forEach(val => findProducts(val, depth + 1));
+    };
+    
+    findProducts(nextData);
+    console.log(`[EnhancedScraper] Found ${products.length} products from __NEXT_DATA__`);
+    
+  } catch (e) {
+    console.log('[EnhancedScraper] Error parsing __NEXT_DATA__:', e);
+  }
+  
+  return products;
+}
+
+/**
+ * Extract products from embedded JSON in script tags
+ * Searches for patterns like: window.__INITIAL_STATE__, __APOLLO_STATE__, etc.
+ */
+function extractProductsFromEmbeddedJSON($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
+  const products: ScrapedProduct[] = [];
+  
+  const patterns = [
+    /window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});/,
+    /window\.__PRELOADED_STATE__\s*=\s*(\{[\s\S]*?\});/,
+    /window\.__APOLLO_STATE__\s*=\s*(\{[\s\S]*?\});/,
+    /window\.APP_DATA\s*=\s*(\{[\s\S]*?\});/,
+    /window\.pageData\s*=\s*(\{[\s\S]*?\});/,
+    /var\s+products\s*=\s*(\[[\s\S]*?\]);/,
+    /const\s+products\s*=\s*(\[[\s\S]*?\]);/,
+    /data-products\s*=\s*'(\[[\s\S]*?\])'/,
+    /"products"\s*:\s*(\[[\s\S]*?\])/,
+    /"items"\s*:\s*(\[[\s\S]*?\])/,
+    /"menuItems"\s*:\s*(\[[\s\S]*?\])/,
+  ];
+  
+  $('script').each((_, script) => {
+    const content = $(script).html() || '';
+    
+    for (const pattern of patterns) {
+      const match = content.match(pattern);
+      if (match && match[1]) {
+        try {
+          const data = JSON.parse(match[1]);
+          const items = Array.isArray(data) ? data : 
+            (data.products || data.items || data.menuItems || data.menu || []);
+          
+          if (Array.isArray(items)) {
+            for (const item of items) {
+              if (typeof item === 'object' && item !== null) {
+                const record = item as Record<string, unknown>;
+                const name = (record.name || record.title || record.productName) as string;
+                
+                if (name && name.length > 2 && name.length < 200) {
+                  const price = record.formattedPrice || record.price || record.amount;
+                  const priceStr = price ? (typeof price === 'number' ? `Rs${price}` : String(price)) : null;
+                  
+                  const image = (record.image || record.imageUrl || record.thumbnail || record.img || record.photo) as string | undefined;
+                  const resolvedImage = image ? resolveUrl(image, baseUrl) : null;
+                  
+                  if (!products.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+                    products.push({
+                      name,
+                      price: priceStr,
+                      originalPrice: null,
+                      currency: priceStr?.includes('Rs') ? 'PKR' : null,
+                      image: resolvedImage,
+                      images: resolvedImage ? [resolvedImage] : [],
+                      description: typeof record.description === 'string' ? record.description.slice(0, 300) : null,
+                      category: typeof record.category === 'string' ? record.category : null,
+                      variants: [],
+                      inStock: true,
+                      url: typeof record.url === 'string' ? resolveUrl(record.url, baseUrl) : null,
+                    });
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          // JSON parse failed, continue
+        }
+      }
+    }
+  });
+  
+  if (products.length > 0) {
+    console.log(`[EnhancedScraper] Found ${products.length} products from embedded JSON`);
+  }
+  
+  return products;
 }
 
 function extractProductsAggressive($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
@@ -914,4 +1114,341 @@ function detectProductType(
   } else {
     return 'service';
   }
+}
+// ============ LANDING PAGE CONTENT EXTRACTION (NEW) ============
+
+interface LandingPageContent {
+  heroHeadline: string | null;
+  heroSubheadline: string | null;
+  ctaText: string[];
+  valuePropositions: string[];
+  serviceDescriptions: string[];
+  pricingInfo: Array<{
+    planName: string;
+    price: string | null;
+    features: string[];
+  }>;
+  testimonials: string[];
+  statsNumbers: Array<{ label: string; value: string }>;
+  featuresList: Array<{ title: string; description: string | null }>;
+}
+
+function extractLandingPageContent($: CheerioAPI): LandingPageContent {
+  const content: LandingPageContent = {
+    heroHeadline: null,
+    heroSubheadline: null,
+    ctaText: [],
+    valuePropositions: [],
+    serviceDescriptions: [],
+    pricingInfo: [],
+    testimonials: [],
+    statsNumbers: [],
+    featuresList: [],
+  };
+  
+  // 1. Extract Hero Section
+  const heroSelectors = [
+    'section:first-of-type', '.hero', '[class*="hero"]', '[class*="banner"]',
+    'header + section', 'header + div', '.jumbotron', '[class*="landing"]',
+    'main > section:first-child', 'main > div:first-child',
+  ];
+  
+  for (const selector of heroSelectors) {
+    const heroSection = $(selector).first();
+    if (heroSection.length) {
+      // Get main headline (usually h1)
+      const h1 = heroSection.find('h1').first();
+      if (h1.length) {
+        content.heroHeadline = h1.text().trim();
+      }
+      
+      // Get subheadline (usually h2 or p after h1)
+      const subheadline = heroSection.find('h2, h1 + p, h1 + div > p').first();
+      if (subheadline.length && !content.heroSubheadline) {
+        const text = subheadline.text().trim();
+        if (text.length > 10 && text.length < 300) {
+          content.heroSubheadline = text;
+        }
+      }
+      
+      if (content.heroHeadline) break;
+    }
+  }
+  
+  // Fallback: First H1 on page
+  if (!content.heroHeadline) {
+    const firstH1 = $('h1').first();
+    if (firstH1.length) {
+      content.heroHeadline = firstH1.text().trim();
+    }
+  }
+  
+  // 2. Extract CTAs (Call to Action buttons)
+  const ctaSelectors = [
+    'a[class*="cta"]', 'button[class*="cta"]',
+    'a[class*="btn-primary"]', 'button[class*="btn-primary"]',
+    'a[class*="button-primary"]', 'button[class*="button-primary"]',
+    '.hero a[class*="btn"]', '.hero button',
+    '[class*="hero"] a[class*="btn"]', '[class*="hero"] button',
+    'a.btn', 'button.btn',
+  ];
+  
+  const ctaTexts = new Set<string>();
+  ctaSelectors.forEach(selector => {
+    $(selector).each((_, el) => {
+      const text = $(el).text().trim();
+      if (text && text.length > 2 && text.length < 50) {
+        // Skip generic navigation
+        if (!/^(home|about|contact|login|sign in|menu|search)$/i.test(text)) {
+          ctaTexts.add(text);
+        }
+      }
+    });
+  });
+  content.ctaText = Array.from(ctaTexts).slice(0, 5);
+  
+  // 3. Extract Value Propositions (the actual selling points)
+  // Look for common patterns: "We [verb]", "Build your", "Get your", numbers + benefit
+  const valuePatterns = [
+    /we (?:build|create|make|design|develop|help|deliver|provide)[^.!]+/gi,
+    /(?:build|create|launch|get|start) your [^.!]+/gi,
+    /in (?:just )?(?:\d+|minutes?|seconds?|hours?|days?)[^.!]*/gi,
+    /(?:no|without) (?:coding|technical|experience)[^.!]*/gi,
+    /(?:\d+%|\d+x|\d+\+) [^.!]+/gi,
+    /(?:free|affordable|easy|fast|quick|simple)[^.!]{10,60}/gi,
+    /save (?:time|money|\$?\d+)[^.!]*/gi,
+    /(?:trusted by|used by|loved by) [^.!]+/gi,
+  ];
+  
+  const allTextContent = $('body').text();
+  valuePatterns.forEach(pattern => {
+    const matches = allTextContent.match(pattern);
+    if (matches) {
+      matches.forEach(match => {
+        const cleaned = match.trim().replace(/\s+/g, ' ');
+        if (cleaned.length > 15 && cleaned.length < 150) {
+          if (!content.valuePropositions.includes(cleaned)) {
+            content.valuePropositions.push(cleaned);
+          }
+        }
+      });
+    }
+  });
+  content.valuePropositions = content.valuePropositions.slice(0, 8);
+  
+  // 4. Extract Service Descriptions
+  // Look for sections that describe what the company does
+  const serviceSelectors = [
+    '[class*="service"]', '[class*="what-we-do"]', '[class*="offerings"]',
+    '[class*="solutions"]', '[class*="features"]', '[class*="about"]',
+    '#services', '#what-we-do', '#features',
+  ];
+  
+  serviceSelectors.forEach(selector => {
+    $(selector).each((_, section) => {
+      // Get the section heading
+      const heading = $(section).find('h2, h3').first().text().trim();
+      // Get the description
+      const desc = $(section).find('p').first().text().trim();
+      
+      if (desc && desc.length > 30 && desc.length < 400) {
+        const fullDesc = heading ? `${heading}: ${desc}` : desc;
+        if (!content.serviceDescriptions.some(s => s.includes(desc.substring(0, 30)))) {
+          content.serviceDescriptions.push(fullDesc);
+        }
+      }
+    });
+  });
+  content.serviceDescriptions = content.serviceDescriptions.slice(0, 5);
+  
+  // 5. Extract Pricing Info
+  const pricingSelectors = [
+    '[class*="pricing"]', '[class*="plans"]', '[class*="packages"]',
+    '#pricing', '#plans', 'section[id*="pricing"]',
+  ];
+  
+  pricingSelectors.forEach(selector => {
+    $(selector).find('[class*="card"], [class*="plan"], [class*="tier"], > div > div').each((_, card) => {
+      const planName = $(card).find('h3, h4, [class*="name"], [class*="title"]').first().text().trim();
+      
+      // Get price
+      let price: string | null = null;
+      const priceEl = $(card).find('[class*="price"], [class*="amount"]').first();
+      if (priceEl.length) {
+        price = priceEl.text().trim();
+      } else {
+        // Look for price pattern in card text
+        const cardText = $(card).text();
+        const priceMatch = cardText.match(/\$[\d,]+(?:\.\d{2})?(?:\/\w+)?|free|custom/i);
+        if (priceMatch) price = priceMatch[0];
+      }
+      
+      // Get features list
+      const features: string[] = [];
+      $(card).find('li, [class*="feature"]').each((_, li) => {
+        const text = $(li).text().trim();
+        if (text && text.length > 3 && text.length < 100) {
+          features.push(text);
+        }
+      });
+      
+      if (planName && (price || features.length > 0)) {
+        // Skip if it looks like a navigation item
+        if (planName.length > 1 && planName.length < 50) {
+          content.pricingInfo.push({
+            planName,
+            price,
+            features: features.slice(0, 10),
+          });
+        }
+      }
+    });
+  });
+  content.pricingInfo = content.pricingInfo.slice(0, 5);
+  
+  // 6. Extract Testimonials
+  const testimonialSelectors = [
+    '[class*="testimonial"]', '[class*="review"]', '[class*="quote"]',
+    'blockquote', '[class*="feedback"]', '[class*="client-say"]',
+  ];
+  
+  testimonialSelectors.forEach(selector => {
+    $(selector).each((_, el) => {
+      const text = $(el).find('p, [class*="text"], [class*="content"]').first().text().trim();
+      if (text && text.length > 20 && text.length < 500) {
+        if (!content.testimonials.some(t => t.includes(text.substring(0, 30)))) {
+          content.testimonials.push(text);
+        }
+      }
+    });
+  });
+  content.testimonials = content.testimonials.slice(0, 3);
+  
+  // 7. Extract Stats/Numbers (e.g., "500+ Websites", "10K+ Users")
+  const statsSelectors = [
+    '[class*="stat"]', '[class*="counter"]', '[class*="number"]',
+    '[class*="metric"]', '[class*="achievement"]',
+  ];
+  
+  const statPattern = /(\d+[kK]?\+?|\d+,\d+\+?|\d+%)\s*([a-zA-Z\s]+)/g;
+  
+  statsSelectors.forEach(selector => {
+    $(selector).each((_, el) => {
+      const text = $(el).text().trim();
+      const matches = text.matchAll(statPattern);
+      for (const match of matches) {
+        const value = match[1];
+        const label = match[2].trim();
+        if (label.length > 2 && label.length < 50) {
+          content.statsNumbers.push({ value, label });
+        }
+      }
+    });
+  });
+  content.statsNumbers = content.statsNumbers.slice(0, 6);
+  
+  // 8. Extract Features List
+  const featureSelectors = [
+    '[class*="feature"]', '[class*="benefit"]', '[class*="advantage"]',
+    '[class*="capability"]', '[class*="highlights"]',
+  ];
+  
+  featureSelectors.forEach(selector => {
+    $(selector).each((_, el) => {
+      const titleEl = $(el).find('h3, h4, [class*="title"], [class*="heading"]').first();
+      const descEl = $(el).find('p, [class*="desc"], [class*="text"]').first();
+      
+      const title = titleEl.text().trim();
+      const description = descEl.text().trim();
+      
+      if (title && title.length > 2 && title.length < 80) {
+        // Skip if already added
+        if (!content.featuresList.some(f => f.title === title)) {
+          content.featuresList.push({
+            title,
+            description: description.length > 10 && description.length < 300 ? description : null,
+          });
+        }
+      }
+    });
+  });
+  content.featuresList = content.featuresList.slice(0, 10);
+  
+  return content;
+}
+
+// ============ WEBSITE CATEGORY DETECTION (NEW) ============
+
+function detectWebsiteCategory(
+  $: CheerioAPI,
+  products: ScrapedProduct[],
+  textContent: TextContent,
+  landingContent: LandingPageContent
+): 'ecommerce' | 'restaurant' | 'saas' | 'agency' | 'portfolio' | 'landing-page' | 'corporate' | 'unknown' {
+  
+  const allText = [
+    ...textContent.headlines,
+    ...textContent.descriptions,
+    landingContent.heroHeadline || '',
+    landingContent.heroSubheadline || '',
+    ...landingContent.serviceDescriptions,
+  ].join(' ').toLowerCase();
+  
+  const hasCart = $('[class*="cart"], [class*="checkout"], [data-cart]').length > 0;
+  const hasAddToCart = $('[class*="add-to-cart"], button:contains("Add to Cart")').length > 0;
+  const hasPricing = landingContent.pricingInfo.length > 0;
+  const hasProducts = products.length > 0;
+  
+  // Restaurant indicators
+  const restaurantPatterns = [
+    /menu/i, /order online/i, /delivery/i, /dine-in/i, /takeaway/i,
+    /restaurant/i, /cafe/i, /food/i, /cuisine/i, /dish/i,
+    /reservation/i, /table for/i, /hungry/i,
+  ];
+  const isRestaurant = restaurantPatterns.filter(p => p.test(allText)).length >= 2;
+  
+  // SaaS indicators
+  const saasPatterns = [
+    /sign up/i, /get started/i, /free trial/i, /pricing/i, /plans/i,
+    /platform/i, /software/i, /app/i, /dashboard/i, /analytics/i,
+    /integration/i, /api/i, /automation/i, /saas/i, /cloud/i,
+    /per month|\/mo|\/month/i, /annual|yearly/i,
+  ];
+  const isSaas = saasPatterns.filter(p => p.test(allText)).length >= 3 || 
+    (hasPricing && !hasProducts);
+  
+  // Agency indicators  
+  const agencyPatterns = [
+    /agency/i, /we build/i, /we create/i, /we design/i, /we develop/i,
+    /our team/i, /our work/i, /portfolio/i, /case stud/i, /clients/i,
+    /contact us/i, /hire us/i, /get a quote/i, /let's talk/i,
+    /web development/i, /marketing/i, /branding/i, /consulting/i,
+  ];
+  const isAgency = agencyPatterns.filter(p => p.test(allText)).length >= 3;
+  
+  // Portfolio indicators
+  const portfolioPatterns = [
+    /my work/i, /my projects/i, /about me/i, /hire me/i,
+    /freelancer/i, /designer/i, /developer/i, /photographer/i,
+    /resume/i, /cv/i,
+  ];
+  const isPortfolio = portfolioPatterns.filter(p => p.test(allText)).length >= 2;
+  
+  // Ecommerce check
+  if (hasCart || hasAddToCart || (hasProducts && products.some(p => p.price))) {
+    if (isRestaurant) return 'restaurant';
+    return 'ecommerce';
+  }
+  
+  if (isRestaurant) return 'restaurant';
+  if (isSaas) return 'saas';
+  if (isAgency) return 'agency';
+  if (isPortfolio) return 'portfolio';
+  
+  // Landing page (has hero, CTA but not much else)
+  if (landingContent.heroHeadline && landingContent.ctaText.length > 0) {
+    return 'landing-page';
+  }
+  
+  return 'unknown';
 }
