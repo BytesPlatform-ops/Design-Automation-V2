@@ -127,9 +127,11 @@ ${selectedProducts.map((p, i) => `
 `).join('\n')}
 
 === YOUR MISSION ===
-Create ${adsPerProduct} DISTINCTLY DIFFERENT ad concepts for EACH ${itemTerm}.
+Create EXACTLY ${adsPerProduct} DISTINCTLY DIFFERENT ad concepts for EACH ${itemTerm}.
 Target: ${platforms.join(', ')}
-Total ads needed: ${selectedProducts.length * adsPerProduct}
+Total ads needed: EXACTLY ${selectedProducts.length * adsPerProduct} ideas (${adsPerProduct} per ${itemTerm} × ${selectedProducts.length} ${itemTermPlural})
+
+🚨 CRITICAL: You MUST return EXACTLY ${selectedProducts.length * adsPerProduct} ad ideas in your response. No more, no less.
 
 Each ad must have:
 1. A SCROLL-STOPPING headline (5-8 words, powerful hook)
@@ -284,16 +286,25 @@ REMEMBER: The visualConcept is the MOST IMPORTANT field. It directly determines 
 If you catch yourself writing about people, REWRITE to focus on objects/environments instead.`;
 
   try {
+    const expectedIdeas = selectedProducts.length * adsPerProduct;
+    console.log(`[URL-Ideation] Expecting ${expectedIdeas} ideas (${adsPerProduct} per product × ${selectedProducts.length} products)`);
+    
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',  // Using better model for creative ideation
       messages: [
         {
           role: 'system',
-          content: 'You are a creative advertising expert. Generate unique, compelling ad ideas. CRITICAL: Never include people, humans, or individuals in visual concepts - AI cannot generate realistic humans. Focus on objects, devices, environments, and abstract elements. Always respond with valid JSON only.',
+          content: `You are a creative advertising expert. Generate unique, compelling ad ideas. 
+CRITICAL RULES:
+1. Never include people, humans, or individuals in visual concepts - AI cannot generate realistic humans
+2. Focus on objects, devices, environments, and abstract elements
+3. You MUST generate EXACTLY the number of ideas requested - no more, no less
+4. Always respond with valid JSON only.`,
         },
         { role: 'user', content: prompt },
       ],
       temperature: 0.9,
+      max_tokens: 8000, // Ensure enough tokens for multiple ideas
       response_format: { type: 'json_object' },
     });
 
@@ -315,6 +326,11 @@ If you catch yourself writing about people, REWRITE to focus on objects/environm
     });
 
     console.log('[URL-Ideation] Generated', ideas.length, 'ideas');
+    
+    // Warn if we got fewer ideas than expected
+    if (ideas.length < expectedIdeas) {
+      console.warn(`[URL-Ideation] WARNING: Expected ${expectedIdeas} ideas but got ${ideas.length}`);
+    }
 
     return ideas;
 

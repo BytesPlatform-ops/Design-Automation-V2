@@ -744,35 +744,45 @@ export async function scrapeWithPuppeteer(url: string): Promise<PuppeteerScraped
     });
     
     // Detect website category
-    const websiteCategory = await page.evaluate((hasProducts: boolean) => {
+    const websiteCategory = await page.evaluate((hasProducts: boolean, productNames: string[]) => {
       const allText = document.body.innerText?.toLowerCase() || '';
-      const hasCart = document.querySelector('[class*="cart"], [class*="checkout"]') !== null;
+      const hasCart = document.querySelector('[class*="cart"], [class*="checkout"], [class*="add-to-cart"]') !== null;
       
-      // SaaS indicators
+      // Check if "products" are actually pricing tiers (SaaS indicator)
+      const pricingTierNames = ['starter', 'pro', 'basic', 'premium', 'enterprise', 'free', 'business', 'plus', 'professional', 'team'];
+      const productsArePricingTiers = productNames.length > 0 && 
+        productNames.every(name => pricingTierNames.some(tier => name.toLowerCase().includes(tier)));
+      
+      // SaaS indicators - check FIRST before ecommerce
       const saasPatterns = [
         /sign up/i, /get started/i, /free trial/i, /pricing/i, /plans/i,
         /platform/i, /software/i, /dashboard/i, /api/i, /saas/i,
-        /per month|\/mo|\/month/i, /annual|yearly/i
+        /per month|\/mo|\/month/i, /annual|yearly/i, /start free/i,
+        /build your/i, /create your/i, /launch your/i
       ];
-      const isSaas = saasPatterns.filter(p => p.test(allText)).length >= 3;
+      const saasScore = saasPatterns.filter(p => p.test(allText)).length;
+      const isSaas = saasScore >= 2 || productsArePricingTiers;
       
       // Agency indicators
       const agencyPatterns = [
         /agency/i, /we build/i, /we create/i, /we design/i, /we develop/i,
-        /our team/i, /portfolio/i, /clients/i, /hire us/i, /get a quote/i
+        /our team/i, /portfolio/i, /clients/i, /hire us/i, /get a quote/i,
+        /our services/i, /what we do/i
       ];
-      const isAgency = agencyPatterns.filter(p => p.test(allText)).length >= 3;
+      const isAgency = agencyPatterns.filter(p => p.test(allText)).length >= 2;
       
       // Restaurant indicators
-      const restaurantPatterns = [/menu/i, /order online/i, /delivery/i, /restaurant/i, /food/i];
+      const restaurantPatterns = [/menu/i, /order online/i, /delivery/i, /restaurant/i, /food/i, /cuisine/i];
       const isRestaurant = restaurantPatterns.filter(p => p.test(allText)).length >= 2;
       
-      if (hasCart && hasProducts) return 'ecommerce';
-      if (isRestaurant) return 'restaurant';
+      // Priority: saas/agency > restaurant > ecommerce
+      // SaaS sites often have "products" (pricing tiers) but they're services
       if (isSaas) return 'saas';
       if (isAgency) return 'agency';
+      if (isRestaurant) return 'restaurant';
+      if (hasCart && hasProducts && !productsArePricingTiers) return 'ecommerce';
       return 'landing-page';
-    }, scrapedData.products.length > 0);
+    }, scrapedData.products.length > 0, scrapedData.products.map(p => p.name));
     
     console.log('[Puppeteer] Website category:', websiteCategory);
 

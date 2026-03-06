@@ -398,6 +398,23 @@ Respond with valid JSON only.`
       analysis.secondaryColor = data.secondaryColor;
     }
     
+    // CRITICAL: Override productType based on our website category detection
+    // AI often gets this wrong, so trust our category detection
+    if (data.websiteCategory === 'saas' || data.websiteCategory === 'agency') {
+      console.log(`[URL-Scrape] Overriding productType to 'service' based on websiteCategory: ${data.websiteCategory}`);
+      analysis.productType = 'service';
+      analysis.serviceSubType = data.websiteCategory === 'saas' ? 'saas-platform' : 'intangible';
+    } else if (data.websiteCategory === 'restaurant') {
+      analysis.productType = 'service';
+      analysis.serviceSubType = 'food-restaurant';
+    } else if (data.websiteCategory === 'landing-page' && data.products.length === 0) {
+      // Landing page with no products = service
+      analysis.productType = 'service';
+      analysis.serviceSubType = 'intangible';
+    }
+    
+    console.log(`[URL-Scrape] Final productType: ${analysis.productType}, serviceSubType: ${analysis.serviceSubType || 'none'}`);
+    
     return analysis;
     
   } catch (error) {
