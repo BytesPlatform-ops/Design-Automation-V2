@@ -1,3 +1,11 @@
+/**
+ * @deprecated This module is deprecated in favor of unified-scraper.ts
+ * The unified scraper combines all extraction strategies into one module.
+ * This file is kept for backward compatibility but will be removed in a future version.
+ * 
+ * Migration: import { scrapeWebsite, UnifiedScrapedData } from './unified-scraper';
+ */
+
 import * as cheerio from 'cheerio';
 
 export interface ScrapedWebsiteData {

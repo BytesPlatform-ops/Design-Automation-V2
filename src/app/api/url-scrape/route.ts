@@ -1,7 +1,19 @@
 import { NextResponse } from 'next/server';
-import { enhancedScrapeWebsite, EnhancedScrapedData, ScrapedProduct } from '@/lib/enhanced-scraper';
-import { scrapeWithPuppeteer, isPuppeteerAvailable } from '@/lib/puppeteer-scraper';
+import { 
+  scrapeWebsite, 
+  UnifiedScrapedData as EnhancedScrapedData, 
+  ScrapedProduct 
+} from '@/lib/unified-scraper';
+import { 
+  getCachedBrandProfile, 
+  saveBrandProfile, 
+  profileToAnalysis,
+  extractDomain 
+} from '@/lib/brand-profile-service';
 import OpenAI from 'openai';
+
+// Re-export ScrapedProduct for backward compatibility
+export type { ScrapedProduct };
 
 const openai = new OpenAI();
 
@@ -53,7 +65,7 @@ export interface URLBrandAnalysis {
 
 export async function POST(req: Request) {
   try {
-    const { url } = await req.json();
+    const { url, forceRefresh = false } = await req.json();
     
     if (!url) {
       return NextResponse.json({ error: 'URL is required' }, { status: 400 });
@@ -61,75 +73,43 @@ export async function POST(req: Request) {
 
     console.log('[URL-Scrape] Starting enhanced scrape for:', url);
     
-    // Step 1: Try Puppeteer first (works on Render, local dev)
-    let scrapedData: EnhancedScrapedData;
-    
-    if (isPuppeteerAvailable()) {
-      console.log('[URL-Scrape] Puppeteer available, using headless browser...');
-      const puppeteerData = await scrapeWithPuppeteer(url);
-      
-      if (puppeteerData) {
-        console.log(`[URL-Scrape] Puppeteer found ${puppeteerData.products.length} products`);
+    // ========================================
+    // STEP 0: Check for cached brand profile
+    // ========================================
+    if (!forceRefresh) {
+      try {
+        const { profile, isStale } = await getCachedBrandProfile(url);
         
-        // Determine product type based on website category
-        let estimatedProductType: 'physical' | 'digital' | 'service' = 'physical';
-        if (puppeteerData.websiteCategory === 'saas' || puppeteerData.websiteCategory === 'agency') {
-          estimatedProductType = 'service';
-        } else if (puppeteerData.websiteCategory === 'landing-page') {
-          estimatedProductType = 'digital';
+        if (profile && !isStale) {
+          console.log(`[URL-Scrape] Using cached profile for ${extractDomain(url)} (scrape count: ${profile.scrape_count})`);
+          const cachedAnalysis = profileToAnalysis(profile);
+          
+          return NextResponse.json({
+            success: true,
+            analysis: cachedAnalysis,
+            cached: true,
+            cacheAge: Math.round((Date.now() - new Date(profile.last_scraped_at).getTime()) / (1000 * 60 * 60)) + 'h',
+          });
         }
         
-        // Convert to EnhancedScrapedData format
-        scrapedData = {
-          url,
-          brandName: puppeteerData.brandName || new URL(url).hostname.replace('www.', ''),
-          tagline: puppeteerData.landingPageContent.heroSubheadline,
-          logo: puppeteerData.logo,
-          favicon: null,
-          primaryColor: puppeteerData.primaryColor,
-          secondaryColor: puppeteerData.secondaryColor,
-          accentColor: puppeteerData.accentColor,
-          allColors: [puppeteerData.primaryColor, puppeteerData.secondaryColor, puppeteerData.accentColor].filter(Boolean) as string[],
-          products: puppeteerData.products,
-          productCategories: [],
-          heroImage: null,
-          bannerImages: [],
-          allImages: [],
-          headlines: puppeteerData.landingPageContent.heroHeadline ? [puppeteerData.landingPageContent.heroHeadline] : [],
-          descriptions: puppeteerData.landingPageContent.serviceDescriptions,
-          uniqueSellingPoints: puppeteerData.landingPageContent.valuePropositions,
-          landingPageContent: {
-            heroHeadline: puppeteerData.landingPageContent.heroHeadline,
-            heroSubheadline: puppeteerData.landingPageContent.heroSubheadline,
-            ctaText: puppeteerData.landingPageContent.ctaText,
-            valuePropositions: puppeteerData.landingPageContent.valuePropositions,
-            serviceDescriptions: puppeteerData.landingPageContent.serviceDescriptions,
-            pricingInfo: puppeteerData.landingPageContent.pricingInfo,
-            testimonials: [],
-            statsNumbers: puppeteerData.landingPageContent.statsNumbers,
-            featuresList: puppeteerData.landingPageContent.featuresList,
-          },
-          contactEmail: null,
-          phone: null,
-          address: null,
-          socialLinks: {},
-          metaTitle: puppeteerData.title || '',
-          metaDescription: puppeteerData.description || '',
-          ogImage: null,
-          structuredData: [],
-          isEcommerce: puppeteerData.websiteCategory === 'ecommerce' || puppeteerData.websiteCategory === 'restaurant',
-          hasProducts: puppeteerData.products.length > 0,
-          estimatedProductType,
-          websiteCategory: puppeteerData.websiteCategory,
-        };
-      } else {
-        console.log('[URL-Scrape] Puppeteer failed, falling back to Cheerio...');
-        scrapedData = await enhancedScrapeWebsite(url);
+        if (profile && isStale) {
+          console.log(`[URL-Scrape] Cache is stale for ${extractDomain(url)}, refreshing...`);
+        }
+      } catch (cacheError) {
+        console.log('[URL-Scrape] Cache check failed, proceeding with fresh scrape:', cacheError);
       }
-    } else {
-      console.log('[URL-Scrape] Puppeteer not available, using Cheerio scraper...');
-      scrapedData = await enhancedScrapeWebsite(url);
     }
+    
+    // ========================================
+    // STEP 1: Use unified scraper (handles Puppeteer/Cheerio automatically)
+    // ========================================
+    console.log('[URL-Scrape] Using unified scraper...');
+    const scrapedData = await scrapeWebsite(url, {
+      timeout: 15000,
+      enablePuppeteer: true,
+      maxProducts: 50,
+      scrapeProductPages: true,
+    });
     
     console.log('[URL-Scrape] Scraped data:', {
       brandName: scrapedData.brandName,
@@ -141,10 +121,20 @@ export async function POST(req: Request) {
     // Step 2: AI Analysis to enhance the scraped data
     const analysis = await analyzeScrapedData(scrapedData);
     
+    // ========================================
+    // STEP 3: Save to cache for future use
+    // ========================================
+    try {
+      await saveBrandProfile(url, analysis, 0.8);
+    } catch (cacheError) {
+      console.log('[URL-Scrape] Failed to cache profile (non-blocking):', cacheError);
+    }
+    
     return NextResponse.json({
       success: true,
       scrapedData,
       analysis,
+      cached: false,
     });
     
   } catch (error) {
@@ -253,9 +243,9 @@ RESPONSE FORMAT (JSON):
   "brandName": "${data.brandName}",
   "tagline": "from hero subheadline or create based on what they do",
   "industry": "specific industry based on content",
-  "primaryColor": "${data.primaryColor || '#3B82F6'}",
-  "secondaryColor": "${data.secondaryColor || '#1E40AF'}",
-  "accentColor": "${data.accentColor || '#F59E0B'}",
+  "primaryColor": "${data.primaryColor || 'REQUIRED - suggest appropriate color based on products/industry (e.g. honey=amber #D97706, tech=blue, health=green)'}",
+  "secondaryColor": "${data.secondaryColor || 'REQUIRED - complementary/darker shade of primary'}",
+  "accentColor": "${data.accentColor || 'REQUIRED - contrasting accent for CTAs'}",
   "suggestedFontStyle": "modern|classic|playful|elegant|bold",
   "brandVoice": "tone based on website content",
   "targetAudience": "based on content clues",
@@ -282,14 +272,23 @@ RESPONSE FORMAT (JSON):
   }
 }
 
+COLOR GUIDANCE (when no colors extracted):
+- Honey/Food products: Warm amber #D97706, brown #92400E, gold #F59E0B
+- Health/Organic: Green #059669, forest #065F46, lime #84CC16  
+- Tech/SaaS: Blue #3B82F6, indigo #4F46E5, cyan #06B6D4
+- Fashion: Black #171717, rose #E11D48, purple #7C3AED
+- Finance: Navy #1E3A8A, gold #CA8A04, slate #475569
+
 REMEMBER: 
-- If products array is empty/has pricing tiers → create 1-2 products based on hero headline
+- If products array is empty/has only pricing tiers → identify the ACTUAL service from the hero headline and describe what they do (NOT inventing features)
 - USPs MUST come from "Value Propositions Found" or "Stats/Numbers" above
-- DO NOT HALLUCINATE generic services like "Business Management", "CRM System" unless explicitly found`;
+- The product name should reflect what's explicitly stated in the hero/descriptions
+- DO NOT HALLUCINATE generic services like "Business Management", "CRM System" unless explicitly found
+- Colors MUST be valid hex codes starting with #`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o', // Upgraded from gpt-4o-mini for better analysis quality
       messages: [
         { 
           role: 'system', 
@@ -390,13 +389,49 @@ Respond with valid JSON only.`
     
     console.log(`[URL-Scrape] Final products count: ${analysis.products.length}`);
     
-    // Ensure we have colors
-    if (!analysis.primaryColor && data.primaryColor) {
-      analysis.primaryColor = data.primaryColor;
+    // Ensure we have colors - apply smart defaults based on industry if AI returned null
+    const defaultColorsByIndustry: Record<string, { primary: string; secondary: string; accent: string }> = {
+      'restaurant': { primary: '#DC2626', secondary: '#7F1D1D', accent: '#FBBF24' },
+      'restaurant': { primary: '#DC2626', secondary: '#7F1D1D', accent: '#FBBF24' },
+      'saas': { primary: '#3B82F6', secondary: '#1E40AF', accent: '#10B981' },
+      'ecommerce': { primary: '#059669', secondary: '#047857', accent: '#F59E0B' },
+      'agency': { primary: '#6366F1', secondary: '#4338CA', accent: '#EC4899' },
+      'food': { primary: '#D97706', secondary: '#92400E', accent: '#F59E0B' }, // Honey/food products
+      'health': { primary: '#059669', secondary: '#065F46', accent: '#84CC16' },
+      'default': { primary: '#3B82F6', secondary: '#1E40AF', accent: '#F59E0B' },
+    };
+    
+    // Try to detect more specific industry from products/content
+    const allText = (data.headlines.join(' ') + ' ' + data.descriptions.join(' ')).toLowerCase();
+    const productNames = data.products.map(p => p.name.toLowerCase()).join(' ');
+    const combinedText = allText + ' ' + productNames;
+    
+    let detectedIndustry = data.websiteCategory;
+    if (combinedText.includes('honey') || combinedText.includes('organic') || combinedText.includes('artisan')) {
+      detectedIndustry = 'food';
+    } else if (combinedText.includes('health') || combinedText.includes('wellness') || combinedText.includes('supplement')) {
+      detectedIndustry = 'health';
     }
-    if (!analysis.secondaryColor && data.secondaryColor) {
-      analysis.secondaryColor = data.secondaryColor;
+    
+    const industryColors = defaultColorsByIndustry[detectedIndustry] || defaultColorsByIndustry[data.websiteCategory] || defaultColorsByIndustry['default'];
+    
+    // Handle null or invalid color values from AI
+    const isValidHexColor = (color: string | null | undefined): boolean => {
+      if (!color) return false;
+      return /^#[0-9A-Fa-f]{6}$/.test(color);
+    };
+    
+    if (!isValidHexColor(analysis.primaryColor)) {
+      analysis.primaryColor = data.primaryColor || industryColors.primary;
     }
+    if (!isValidHexColor(analysis.secondaryColor)) {
+      analysis.secondaryColor = data.secondaryColor || industryColors.secondary;
+    }
+    if (!isValidHexColor(analysis.accentColor)) {
+      analysis.accentColor = data.accentColor || industryColors.accent;
+    }
+    
+    console.log(`[URL-Scrape] Colors: primary=${analysis.primaryColor}, detected industry=${detectedIndustry}`);
     
     // CRITICAL: Override productType based on our website category detection
     // AI often gets this wrong, so trust our category detection

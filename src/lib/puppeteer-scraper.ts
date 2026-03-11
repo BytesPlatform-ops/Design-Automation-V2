@@ -1,9 +1,10 @@
 /**
  * Puppeteer-based scraper for JS-heavy websites
+ * @deprecated Use unified-scraper.ts instead - this module is kept for reference
  * Works on Render, Railway, local dev - NOT on Vercel serverless
  */
 
-import type { ScrapedProduct } from './enhanced-scraper';
+import type { ScrapedProduct } from './unified-scraper';
 
 export interface PuppeteerScrapedData {
   products: ScrapedProduct[];
@@ -791,17 +792,39 @@ export async function scrapeWithPuppeteer(url: string): Promise<PuppeteerScraped
 
     // Convert to ScrapedProduct format
     const products: ScrapedProduct[] = scrapedData.products.map(p => {
-      // Detect currency from price string
+      // Universal currency detection from price string
       let currency: string | null = null;
       if (p.price) {
-        if (p.price.includes('Rs') || p.price.includes('₨') || p.price.includes('PKR')) {
-          currency = 'PKR';
-        } else if (p.price.includes('$')) {
+        const priceStr = p.price;
+        // Check for currency symbols/codes
+        if (priceStr.includes('$') && !priceStr.includes('A$') && !priceStr.includes('C$') && !priceStr.includes('NZ$') && !priceStr.includes('S$')) {
           currency = 'USD';
-        } else if (p.price.includes('€')) {
+        } else if (priceStr.includes('A$')) {
+          currency = 'AUD';
+        } else if (priceStr.includes('C$')) {
+          currency = 'CAD';
+        } else if (priceStr.includes('S$')) {
+          currency = 'SGD';
+        } else if (priceStr.includes('NZ$')) {
+          currency = 'NZD';
+        } else if (priceStr.includes('€')) {
           currency = 'EUR';
-        } else if (p.price.includes('£')) {
+        } else if (priceStr.includes('£')) {
           currency = 'GBP';
+        } else if (priceStr.includes('¥')) {
+          currency = 'JPY';
+        } else if (priceStr.includes('₹')) {
+          currency = 'INR';
+        } else if (priceStr.includes('Rs') || priceStr.includes('₨') || priceStr.includes('PKR')) {
+          currency = 'PKR';
+        } else if (priceStr.includes('₩')) {
+          currency = 'KRW';
+        } else if (priceStr.includes('฿')) {
+          currency = 'THB';
+        } else if (priceStr.includes('RM')) {
+          currency = 'MYR';
+        } else if (priceStr.includes('AED')) {
+          currency = 'AED';
         }
       }
       

@@ -1,3 +1,11 @@
+/**
+ * @deprecated This module is deprecated in favor of unified-scraper.ts
+ * The unified scraper combines all extraction strategies into one module.
+ * This file is kept for backward compatibility but will be removed in a future version.
+ * 
+ * Migration: import { scrapeWebsite, ScrapedProduct } from './unified-scraper';
+ */
+
 import * as cheerio from 'cheerio';
 import type { CheerioAPI, Cheerio } from 'cheerio';
 
@@ -81,6 +89,76 @@ export interface EnhancedScrapedData {
   hasProducts: boolean;
   estimatedProductType: 'physical' | 'digital' | 'service';
   websiteCategory: 'ecommerce' | 'restaurant' | 'saas' | 'agency' | 'portfolio' | 'landing-page' | 'corporate' | 'unknown';
+}
+
+// ============ UNIVERSAL CURRENCY PARSER ============
+
+/**
+ * Currency symbol to code mapping for international support
+ */
+const CURRENCY_MAP: Record<string, string> = {
+  '$': 'USD',
+  '€': 'EUR',
+  '£': 'GBP',
+  '¥': 'JPY', // or CNY - context dependent
+  '₹': 'INR',
+  '₨': 'PKR',
+  'Rs': 'PKR',
+  'Rs.': 'PKR',
+  'PKR': 'PKR',
+  'R': 'ZAR',
+  '₩': 'KRW',
+  '฿': 'THB',
+  '₫': 'VND',
+  'kr': 'SEK', // or NOK/DKK
+  'CHF': 'CHF',
+  'A$': 'AUD',
+  'C$': 'CAD',
+  'NZ$': 'NZD',
+  '₱': 'PHP',
+  'RM': 'MYR',
+  'S$': 'SGD',
+  'AED': 'AED',
+  'SAR': 'SAR',
+};
+
+/**
+ * Parse price string and detect currency universally
+ */
+function parsePrice(priceText: string | number | null | undefined): { price: string | null; currency: string | null } {
+  if (priceText === null || priceText === undefined) {
+    return { price: null, currency: null };
+  }
+  
+  const text = String(priceText).trim();
+  if (!text) return { price: null, currency: null };
+  
+  // If it's just a number, return it without currency
+  if (typeof priceText === 'number') {
+    return { price: String(priceText), currency: null };
+  }
+  
+  // Try to detect currency from the string
+  let detectedCurrency: string | null = null;
+  
+  // Check for currency symbols/codes at start or end
+  for (const [symbol, code] of Object.entries(CURRENCY_MAP)) {
+    if (text.startsWith(symbol) || text.includes(symbol)) {
+      detectedCurrency = code;
+      break;
+    }
+  }
+  
+  // Extract numeric value
+  const numericMatch = text.match(/[\d,]+(?:\.\d{2})?/);
+  const priceValue = numericMatch ? numericMatch[0] : text;
+  
+  // Format with currency if detected
+  const formattedPrice = detectedCurrency && !text.includes(detectedCurrency)
+    ? `${CURRENCY_MAP[Object.keys(CURRENCY_MAP).find(s => text.includes(s)) || ''] || ''}${priceValue}`.trim()
+    : text;
+  
+  return { price: formattedPrice || text, currency: detectedCurrency };
 }
 
 /**
@@ -194,28 +272,42 @@ export async function enhancedScrapeWebsite(url: string): Promise<EnhancedScrape
 
 // ============ HELPER FUNCTIONS ============
 
-async function fetchAndParse(url: string) {
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-    redirect: 'follow',
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch: ${response.status}`);
-  }
-
-  const html = await response.text();
-  const $ = cheerio.load(html);
+async function fetchAndParse(url: string, timeoutMs = 15000) {
+  // Add timeout using AbortController
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   
-  return {
-    html,
-    $,
-    baseUrl: new URL(url),
-  };
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch: ${response.status}`);
+    }
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+    
+    return {
+      html,
+      $,
+      baseUrl: new URL(url),
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function resolveUrl(relativeUrl: string | null | undefined, baseUrl: URL): string | null {
@@ -255,6 +347,60 @@ function findProductPageUrls($: CheerioAPI, baseUrl: URL): string[] {
 function extractProducts($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
   const products: ScrapedProduct[] = [];
   const seenNames = new Set<string>();
+  
+  // ========================================
+  // STRATEGY 1: STRUCTURED DATA FIRST (most reliable)
+  // JSON-LD, Schema.org, microdata - works on 60-80% of e-commerce sites
+  // ========================================
+  const structuredProducts = extractProductsFromStructuredData($, baseUrl);
+  structuredProducts.forEach(p => {
+    if (!seenNames.has(p.name.toLowerCase())) {
+      seenNames.add(p.name.toLowerCase());
+      products.push(p);
+    }
+  });
+  
+  if (products.length >= 3) {
+    console.log(`[EnhancedScraper] Found ${products.length} products from structured data (primary source)`);
+    return products;
+  }
+  
+  // ========================================
+  // STRATEGY 2: EMBEDDED JSON (Next.js, Redux, Apollo)
+  // ========================================
+  const nextDataProducts = extractProductsFromNextData($, baseUrl);
+  nextDataProducts.forEach(p => {
+    if (!seenNames.has(p.name.toLowerCase())) {
+      seenNames.add(p.name.toLowerCase());
+      products.push(p);
+    }
+  });
+  
+  const embeddedProducts = extractProductsFromEmbeddedJSON($, baseUrl);
+  embeddedProducts.forEach(p => {
+    if (!seenNames.has(p.name.toLowerCase())) {
+      seenNames.add(p.name.toLowerCase());
+      products.push(p);
+    }
+  });
+  
+  const lightspeedProducts = extractProductsFromLightspeedState($, baseUrl);
+  lightspeedProducts.forEach(p => {
+    if (!seenNames.has(p.name.toLowerCase())) {
+      seenNames.add(p.name.toLowerCase());
+      products.push(p);
+    }
+  });
+  
+  if (products.length >= 3) {
+    console.log(`[EnhancedScraper] Found ${products.length} products from embedded JSON`);
+    return products;
+  }
+  
+  // ========================================
+  // STRATEGY 3: CSS SELECTORS (fallback only)
+  // This is the least reliable approach
+  // ========================================
   
   // Product container selectors
   const productContainerSelectors = [
@@ -297,51 +443,9 @@ function extractProducts($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
     }
   }
   
-  // Try Next.js __NEXT_DATA__ (common in modern sites like KFC, etc.)
-  if (products.length < 3) {
-    const nextDataProducts = extractProductsFromNextData($, baseUrl);
-    nextDataProducts.forEach(p => {
-      if (!seenNames.has(p.name.toLowerCase())) {
-        seenNames.add(p.name.toLowerCase());
-        products.push(p);
-      }
-    });
-  }
+  console.log(`[EnhancedScraper] Found ${products.length} products total (structured: ${structuredProducts.length}, embedded: ${nextDataProducts.length + embeddedProducts.length + lightspeedProducts.length}, CSS selectors: ${products.length - structuredProducts.length - nextDataProducts.length - embeddedProducts.length - lightspeedProducts.length})`);
   
-  // Try embedded JSON in script tags (Redux state, Apollo cache, etc.)
-  if (products.length < 3) {
-    const embeddedProducts = extractProductsFromEmbeddedJSON($, baseUrl);
-    embeddedProducts.forEach(p => {
-      if (!seenNames.has(p.name.toLowerCase())) {
-        seenNames.add(p.name.toLowerCase());
-        products.push(p);
-      }
-    });
-  }
-  
-  // Try Lightspeed/Ecwid embedded state
-  if (products.length < 3) {
-    const lightspeedProducts = extractProductsFromLightspeedState($, baseUrl);
-    lightspeedProducts.forEach(p => {
-      if (!seenNames.has(p.name.toLowerCase())) {
-        seenNames.add(p.name.toLowerCase());
-        products.push(p);
-      }
-    });
-  }
-  
-  // Try structured data
-  if (products.length === 0) {
-    const structuredProducts = extractProductsFromStructuredData($, baseUrl);
-    structuredProducts.forEach(p => {
-      if (!seenNames.has(p.name.toLowerCase())) {
-        seenNames.add(p.name.toLowerCase());
-        products.push(p);
-      }
-    });
-  }
-  
-  // Aggressive approach
+  // If still no products, try aggressive approach
   if (products.length === 0) {
     const aggressiveProducts = extractProductsAggressive($, baseUrl);
     aggressiveProducts.forEach(p => {
@@ -570,11 +674,12 @@ function extractProductsFromLightspeedState($: CheerioAPI, baseUrl: URL): Scrape
             if (tile.type === 'STORE' && tile.externalContent?.storeData?.products) {
               for (const p of tile.externalContent.storeData.products) {
                 if (p.name && p.enabled !== false) {
+                  const { price: parsedPrice, currency } = parsePrice(p.formattedPrice || p.price);
                   products.push({
                     name: p.name,
-                    price: p.formattedPrice || (p.price ? `${p.price}Rs` : null),
+                    price: parsedPrice,
                     originalPrice: null,
-                    currency: 'PKR',
+                    currency,
                     image: p.thumbnailImageUrl || p.imageUrl || null,
                     images: [p.thumbnailImageUrl, p.imageUrl, p.fullImageUrl, p.alternativeProductImage?.imageUrl].filter(Boolean) as string[],
                     description: p.description ? stripHtml(p.description) : null,
@@ -635,8 +740,8 @@ function extractProductsFromNextData($: CheerioAPI, baseUrl: URL): ScrapedProduc
       if (hasName && (hasPrice || hasImage)) {
         const name = (record.name || record.title || record.productName) as string;
         if (name && name.length > 2 && name.length < 200) {
-          const price = record.formattedPrice || record.price || record.amount;
-          const priceStr = price ? (typeof price === 'number' ? `Rs${price}` : String(price)) : null;
+          const rawPrice = (record.formattedPrice || record.price || record.amount) as string | number | null;
+          const { price: priceStr, currency } = parsePrice(rawPrice);
           
           const image = (record.image || record.imageUrl || record.thumbnail || record.img || record.photo || record.imageURL) as string | undefined;
           const resolvedImage = image ? resolveUrl(image, baseUrl) : null;
@@ -647,7 +752,7 @@ function extractProductsFromNextData($: CheerioAPI, baseUrl: URL): ScrapedProduc
               name,
               price: priceStr,
               originalPrice: null,
-              currency: priceStr?.includes('Rs') ? 'PKR' : null,
+              currency,
               image: resolvedImage,
               images: resolvedImage ? [resolvedImage] : [],
               description: typeof record.description === 'string' ? record.description.slice(0, 300) : null,
@@ -713,8 +818,8 @@ function extractProductsFromEmbeddedJSON($: CheerioAPI, baseUrl: URL): ScrapedPr
                 const name = (record.name || record.title || record.productName) as string;
                 
                 if (name && name.length > 2 && name.length < 200) {
-                  const price = record.formattedPrice || record.price || record.amount;
-                  const priceStr = price ? (typeof price === 'number' ? `Rs${price}` : String(price)) : null;
+                  const rawPrice = (record.formattedPrice || record.price || record.amount) as string | number | null;
+                  const { price: priceStr, currency } = parsePrice(rawPrice);
                   
                   const image = (record.image || record.imageUrl || record.thumbnail || record.img || record.photo) as string | undefined;
                   const resolvedImage = image ? resolveUrl(image, baseUrl) : null;
@@ -724,7 +829,7 @@ function extractProductsFromEmbeddedJSON($: CheerioAPI, baseUrl: URL): ScrapedPr
                       name,
                       price: priceStr,
                       originalPrice: null,
-                      currency: priceStr?.includes('Rs') ? 'PKR' : null,
+                      currency,
                       image: resolvedImage,
                       images: resolvedImage ? [resolvedImage] : [],
                       description: typeof record.description === 'string' ? record.description.slice(0, 300) : null,

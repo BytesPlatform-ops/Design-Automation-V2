@@ -7,6 +7,11 @@ import {
   saveGeneratedImage, 
   uploadImageToStorage 
 } from '@/lib/supabase-client';
+import { 
+  validateGeneratedAd, 
+  shouldValidateAd,
+  type QualityCheckResult 
+} from '@/lib/quality-validator';
 
 // Temporary user ID - same as dashboard so ads appear in My Projects
 const TEMP_USER_ID = 'temp-user-' + (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.slice(0, 8) || 'default');
@@ -32,6 +37,9 @@ interface GeneratedURLAd {
   productName: string;
   headline: string;
   aspectRatio: string;
+  // Quality validation results (optional)
+  qualityScore?: number;
+  qualityPassed?: boolean;
 }
 
 interface URLGenerationRequest {
@@ -67,25 +75,77 @@ export async function POST(req: Request) {
       console.log(`[URL-Generation] Idea ${i + 1}: ${idea.productName}, Image: ${idea.productImage || 'NONE'}`);
     });
 
-    // Generate ads one by one (Gemini can't do batch image generation)
+    // Generate ads in parallel batches (2-3 concurrent for API rate limits)
+    const BATCH_SIZE = 3;
     const generatedAds: GeneratedURLAd[] = [];
     const errors: string[] = [];
 
-    for (const idea of ideas) {
-      try {
-        const ad = await generateAdFromIdea(
-          idea,
-          aspectRatio,
-          brandName,
-          brandColors,
-          logoUrl,
-          productType,
-          serviceSubType
-        );
-        generatedAds.push(ad);
-      } catch (error) {
-        console.error(`[URL-Generation] Failed to generate ad for ${idea.productName}:`, error);
-        errors.push(`Failed: ${idea.productName} - ${error instanceof Error ? error.message : 'Unknown error'}`);
+    // Process in batches
+    for (let i = 0; i < ideas.length; i += BATCH_SIZE) {
+      const batch = ideas.slice(i, i + BATCH_SIZE);
+      const batchStartIndex = i;
+      console.log(`[URL-Generation] Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(ideas.length / BATCH_SIZE)} (${batch.length} ads)`);
+      
+      const batchResults = await Promise.allSettled(
+        batch.map(idea =>
+          generateAdFromIdea(
+            idea,
+            aspectRatio,
+            brandName,
+            brandColors,
+            logoUrl,
+            productType,
+            serviceSubType
+          )
+        )
+      );
+      
+      // Process results with quality validation
+      for (let j = 0; j < batchResults.length; j++) {
+        const result = batchResults[j];
+        const idea = batch[j];
+        const adIndex = batchStartIndex + j;
+        
+        if (result.status === 'fulfilled') {
+          const ad = result.value;
+          
+          // Quality validation for selected ads
+          if (shouldValidateAd(adIndex, ideas.length, 50)) {
+            try {
+              console.log(`[URL-Generation] Validating ad ${adIndex + 1}/${ideas.length}...`);
+              const qualityResult = await validateGeneratedAd({
+                imageBase64: ad.imageData,
+                expectedHeadline: idea.headline,
+                expectedSubheadline: idea.subheadline,
+                expectedCta: idea.callToAction,
+                brandColors,
+                productName: idea.productName,
+              });
+              
+              // Add quality info to the ad
+              ad.qualityScore = qualityResult.score;
+              ad.qualityPassed = qualityResult.passed;
+              
+              if (!qualityResult.passed) {
+                console.warn(`[URL-Generation] Ad ${adIndex + 1} failed quality check (score: ${qualityResult.score}):`, qualityResult.issues);
+              } else {
+                console.log(`[URL-Generation] Ad ${adIndex + 1} passed quality check (score: ${qualityResult.score})`);
+              }
+            } catch (validationError) {
+              console.warn(`[URL-Generation] Quality validation failed (non-blocking):`, validationError);
+            }
+          }
+          
+          generatedAds.push(ad);
+        } else {
+          console.error(`[URL-Generation] Failed to generate ad for ${idea.productName}:`, result.reason);
+          errors.push(`Failed: ${idea.productName} - ${result.reason instanceof Error ? result.reason.message : 'Unknown error'}`);
+        }
+      }
+      
+      // Small delay between batches to respect rate limits
+      if (i + BATCH_SIZE < ideas.length) {
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
 
@@ -324,304 +384,99 @@ function buildAdPrompt(
   productType: 'physical' | 'digital' | 'service' = 'physical',
   serviceSubType?: 'food-restaurant' | 'saas-platform' | 'intangible'
 ): string {
-  // Determine aspect ratio string
   const aspectRatio = width === height ? '1:1' : width > height ? '16:9' : '9:16';
   
-  // Terminology based on business type
-  const isService = productType === 'service';
+  // Business type detection
+  const isFoodService = productType === 'service' && serviceSubType === 'food-restaurant';
+  const isSaaSService = productType === 'service' && serviceSubType === 'saas-platform';
+  const isIntangibleService = productType === 'service' && !isFoodService && !isSaaSService;
   const isDigital = productType === 'digital';
-  // Food services should be treated like physical products
-  const isFoodService = isService && serviceSubType === 'food-restaurant';
-  // SaaS/platforms need feature highlights
-  const isSaaSService = isService && serviceSubType === 'saas-platform';
-  // Intangible services (consulting, etc.)
-  const isIntangibleService = isService && !isFoodService && !isSaaSService;
-  // Should we include key features in the ad?
   const needsKeyFeatures = isIntangibleService || isSaaSService;
   
-  const itemTerm = isFoodService ? 'menu item' : isSaaSService ? 'platform' : isService ? 'service' : isDigital ? 'digital product' : 'product';
-  const itemTermCap = isFoodService ? 'Menu Item' : isSaaSService ? 'Platform' : isService ? 'Service' : isDigital ? 'Digital Product' : 'Product';
+  // Price validation
+  const hasValidPrice = idea.productPrice && 
+    !/^(0|free|rs\.?0|null)$/i.test(idea.productPrice.replace(/[^a-z0-9.]/gi, ''));
   
-  // Helper to check if price is valid (not 0, rs.0, free, empty, etc.)
-  const isValidPrice = (price: string | null | undefined): boolean => {
-    if (!price) return false;
-    const normalizedPrice = price.toLowerCase().replace(/[^a-z0-9.]/g, '');
-    // Invalid if: empty, "0", "rs0", "rs.0", "free", "0.00", etc.
-    if (normalizedPrice === '' || normalizedPrice === '0' || normalizedPrice === 'rs0' || 
-        normalizedPrice === 'free' || normalizedPrice === '0.00' || normalizedPrice === '000' ||
-        /^rs?\.?0+$/.test(normalizedPrice)) {
-      return false;
-    }
-    return true;
-  };
-  
-  // Price display instruction - PREMIUM STYLING (only if valid price)
-  const priceInstruction = isValidPrice(idea.productPrice)
-    ? `
-=== PRICE DISPLAY: "${idea.productPrice}" ===
-CRITICAL: Design the price as a PREMIUM, PROFESSIONAL element:
-- DO NOT use ugly starburst or cheap-looking badges
-- Options for ELEGANT price styling:
-  1. Clean pill/badge with subtle gradient and soft shadow
-  2. Minimalist rectangle with accent color background
-  3. Elegant serif or modern sans-serif typography standalone
-  4. Subtle glass-morphism card effect
-  5. Integrated into a ribbon that flows with the design
-- Position: Near product but NOT blocking it — bottom corner, floating beside, or in info banner
-- Typography: Clean, readable, premium-feeling font
-- Color: Use brand accent color (${brandColors.accent}) or complementary tone
-- NO cheap clip-art, NO starburst shapes, NO carnival-style pricing`
-    : `
-⚠️ NO PRICE AVAILABLE - DO NOT DISPLAY ANY PRICE ON THIS AD.
-- Do NOT write "Price: null", "Price: [null]", "null", or any placeholder
-- Simply skip the price element entirely
-- If you need to fill space, use the CTA button or leave breathing room`;
-
-  // Visualization instruction changes based on product type
-  let visualizationInstruction: string;
-  
-  if (isFoodService) {
-    // Food/Restaurant services - treat like physical products, show the FOOD
-    visualizationInstruction = hasProductImage
-      ? `
-=== FOOD PRODUCT IMAGE PROVIDED (UPLOADED ABOVE) ===
-CRITICAL: The reference image shows "${idea.productName}" - a FOOD ITEM.
-- Use this EXACT food item as the HERO of the ad
-- Style it with professional food photography techniques
-- Add complementary elements: steam, garnishes, utensils, table setting
-- Make it look ABSOLUTELY DELICIOUS and irresistible
-- ⚠️ DO NOT include people eating or chefs - AI struggles with realistic humans
-- Focus 100% on the FOOD - it is the star of this ad`
-      : `
-=== FOOD VISUALIZATION ===
-Create a MOUTH-WATERING visualization of "${idea.productName}":
-- Professional food photography style
-- Beautifully plated dish as the HERO
-- Steam rising, glistening textures, vibrant colors
-- Warm, appetizing golden lighting
-- Fresh ingredients arranged around the main dish
-- Elegant table setting, wooden/marble surface
-- ⚠️ NO people, no chefs, no hands - only the FOOD
-- Make viewers HUNGRY just looking at it
-
-The FOOD is the product. Make it look IRRESISTIBLE.`;
-  } else if (isIntangibleService) {
-    // IT, consulting, education services - need selling points, no physical product
-    visualizationInstruction = hasProductImage
-      ? `
-=== SERVICE VISUAL PROVIDED (UPLOADED ABOVE) ===
-CRITICAL: The reference image represents "${idea.productName}" service.
-- Use this image as INSPIRATION for the ad's visual style
-- Create a scene showing the OUTCOME or BENEFIT of this service
-- ⚠️ DO NOT include people, faces, hands or human figures - AI struggles with realistic humans
-- Focus on: tools, environments, results, objects relevant to THIS specific service`
-      : `
-=== INTANGIBLE SERVICE VISUALIZATION ===
-⚠️ CRITICAL RULE: DO NOT include people, faces, hands, or human figures.
-AI-generated humans often look artificial. Create compelling visuals using OBJECTS and ENVIRONMENTS.
-
-Adapt visuals to "${idea.productName}" service type:
-
-🧹 CLEANING/HOME: Sparkling spaces, organized rooms, cleaning products
-💼 BUSINESS/CONSULTING: Meeting rooms, charts, professional workspaces, documents (no people)
-🏥 HEALTH/WELLNESS: Spa environments, wellness equipment, calming spaces
-🎓 EDUCATION: Books, certificates, learning materials, classrooms (no students)
-💻 TECH/IT: Servers, code screens, network diagrams, modern office setups
-📦 DELIVERY/LOGISTICS: Packages, delivery boxes, maps, warehouses
-
-Show the OUTCOME, TOOLS, and ENVIRONMENT of the service.`;
-  } else if (isService) {
-    // Generic service fallback
-    visualizationInstruction = hasProductImage
-      ? `
-=== SERVICE VISUAL PROVIDED (UPLOADED ABOVE) ===
-CRITICAL: The reference image represents "${idea.productName}" service.
-- Use this image as INSPIRATION for the ad's visual style
-- Create a scene showing the OUTCOME or BENEFIT of this service
-- ⚠️ DO NOT include people, faces, hands or human figures - AI struggles with realistic humans
-- Focus on: tools, environments, results, objects relevant to THIS specific service`
-      : `
-=== SERVICE VISUALIZATION ===
-⚠️ CRITICAL RULE: DO NOT include people, faces, hands, or human figures.
-AI-generated humans often look artificial. Create compelling visuals using OBJECTS and ENVIRONMENTS.
-
-Adapt visuals to "${idea.productName}" service type:
-
-🍽️ FOOD/RESTAURANT: Beautifully plated dishes, steam rising, fresh ingredients, table settings (no diners/chefs)
-🧹 CLEANING/HOME: Sparkling spaces, organized rooms, cleaning products
-💼 BUSINESS/CONSULTING: Meeting rooms, charts, professional workspaces, documents (no people)
-🏥 HEALTH/WELLNESS: Spa environments, wellness equipment, calming spaces
-🎓 EDUCATION: Books, certificates, learning materials, classrooms (no students)
-💻 TECH/IT: Servers, code screens, network diagrams, modern office setups
-📦 DELIVERY/LOGISTICS: Packages, delivery boxes, maps, warehouses
-
-CHOOSE visuals that match THIS service's industry.
-Show the OUTCOME, TOOLS, and ENVIRONMENT of the service.`;
-  } else if (isDigital) {
-    visualizationInstruction = hasProductImage
-      ? `
-=== DIGITAL PRODUCT VISUAL PROVIDED (UPLOADED ABOVE) ===
-CRITICAL: The reference image shows "${idea.productName}" digital product.
-- Use this as reference for the product's branding and style
-- Show the digital product on devices (laptop, tablet, phone mockup) - NO hands holding them
-- Create a tech-forward, modern aesthetic
-- ⚠️ DO NOT include people, faces, or hands - AI struggles with realistic humans
-- Focus on the interface, features, and value the product delivers`
-      : `
-=== DIGITAL PRODUCT VISUALIZATION ===
-⚠️ CRITICAL RULE: DO NOT include people, faces, hands, or human figures.
-AI-generated humans often look artificial.
-
-Create a stunning visualization for "${idea.productName}" digital product:
-- DEVICE MOCKUPS: laptop, phone, tablet screens floating or on desk (NO hands holding them)
-- INTERFACE PREVIEW: Key features, dashboards, or content previews
-- FLOATING ELEMENTS: Book covers, course modules, software icons in space
-- 3D ABSTRACT: Futuristic elements, data visualization, clean tech aesthetics
-- ENVIRONMENT: Tech workspace with devices (no people working)
-- TRANSFORMATION SYMBOLS: Progress bars, achievement badges, before/after icons
-- GLOW EFFECTS: Gradients, light effects, premium tech feel
-
-Show the VALUE and TRANSFORMATION the product delivers through OBJECTS, not people.`;
-  } else {
-    visualizationInstruction = hasProductImage
-      ? `
-=== PRODUCT IMAGE PROVIDED (UPLOADED ABOVE) ===
-CRITICAL INSTRUCTION: The reference image shows the ACTUAL product "${idea.productName}".
-- Incorporate this EXACT product into your ad design
-- Preserve the product's packaging, label design, colors, and overall appearance
-- Position as the HERO element with professional product photography
-- Enhance with complementary props/environment but keep the product AUTHENTIC
-- The product should dominate the composition — it's the star`
-      : `
-=== PRODUCT VISUALIZATION ===
-Create a stunning, photorealistic representation of "${idea.productName}".
-- Design a premium, aspirational product that looks worth buying
-- Use professional product photography techniques
-- The product should look like it belongs in a high-end advertisement`;
-  }
-  
-  const businessTypeDesc = isFoodService 
-    ? 'FOOD/RESTAURANT (treat menu items like physical products - show the FOOD)' 
+  // Visual focus based on product type
+  const visualFocus = isFoodService 
+    ? 'FOOD HERO: Mouth-watering dish, professional food photography, steam, vibrant colors. NO people.'
     : isIntangibleService
-      ? 'INTANGIBLE SERVICE (no physical products - show selling points)'
-      : isService 
-        ? 'SERVICE COMPANY (focus on outcomes & benefits)' 
-        : isDigital 
-          ? 'DIGITAL PRODUCT (focus on transformation, convenience, knowledge)' 
-          : 'PHYSICAL PRODUCT (focus on the tangible item)';
+      ? 'SERVICE OUTCOME: Show tools, environments, results relevant to the service. NO people/faces.'
+      : isDigital
+        ? 'DIGITAL SHOWCASE: Device mockups, interface previews, floating UI elements. NO hands.'
+        : hasProductImage
+          ? 'PRODUCT HERO: Feature the exact product from reference image as the star.'
+          : 'PRODUCT VISUALIZATION: Premium, photorealistic product rendering.';
 
-  return `You are a legendary advertising creative director. Your ads have won Cannes Lions and your campaigns achieve 10x industry engagement. Create a SCROLL-STOPPING advertisement.
+  // Key features section (only for services)
+  const featuresSection = needsKeyFeatures && idea.keyFeatures?.length 
+    ? `\nKEY FEATURES (display as elegant glass-morphism cards or gradient pills):\n${idea.keyFeatures.map(f => `• ${f}`).join('\n')}`
+    : '';
+
+  // Price styling instruction
+  const priceInstruction = hasValidPrice 
+    ? `PRICE: "${idea.productPrice}" — Display as elegant pill badge with soft shadow, positioned near product but not blocking it.`
+    : 'NO PRICE — Do not display any price, "null", or placeholder text.';
+
+  // Enhanced compressed prompt (~1000-1200 tokens with high-impact additions)
+  return `Create a premium ${idea.platform} advertisement for ${brandName}.
+
+CANVAS: ${width}x${height}px (${aspectRatio})
 
 === CREATIVE BRIEF ===
-
-CLIENT: ${brandName}
-${itemTermCap.toUpperCase()}: ${idea.productName}
-BUSINESS TYPE: ${businessTypeDesc}
-AUDIENCE: ${idea.targetAudience}
-PLATFORM: ${idea.platform}
-CREATIVE ANGLE: ${idea.adAngle}
+PRODUCT: ${idea.productName}
+HEADLINE: "${idea.headline}"
+SUBHEADLINE: "${idea.subheadline}"
+CTA BUTTON: "${idea.callToAction}"
 ${priceInstruction}
+AUDIENCE: ${idea.targetAudience}
+ANGLE: ${idea.adAngle}
+${featuresSection}
 
-${visualizationInstruction}
+=== BRAND COLORS (CRITICAL - MUST USE) ===
+PRIMARY: ${brandColors.primary} → Background, dominant visual areas (60% of design)
+SECONDARY: ${brandColors.secondary} → Supporting shapes, gradients, text backgrounds (30%)
+ACCENT: ${brandColors.accent} → CTA button, price badge, key highlights (10%)
 
-=== MANDATORY COLOR PALETTE ===
-You MUST build the entire ad around these brand colors:
-
-PRIMARY (${brandColors.primary}):
-→ Use for: main background areas, large shapes, dominant visual weight
-→ This color should be IMMEDIATELY noticeable in the ad
-
-SECONDARY (${brandColors.secondary}):
-→ Use for: supporting elements, gradients with primary, text backgrounds
-→ Creates depth and visual interest
-
-ACCENT (${brandColors.accent}):
-→ Use for: CTA button, highlights, key focal points
-→ This draws the eye to action items
+The ad should be IMMEDIATELY recognizable as ${brandName} by color alone.
 
 === VISUAL DIRECTION ===
-${idea.visualConcept}
+${visualFocus}
 
-=== TYPOGRAPHY DIRECTION ===
-You have COMPLETE CREATIVE FREEDOM on typography choices. Think like a world-class typographer:
+CONCEPT: ${idea.visualConcept}
 
-HEADLINE: "${idea.headline}"
-• Make it IMPOSSIBLE TO IGNORE
-• Choose a font style that matches the brand energy (bold sans-serif for modern, elegant serif for luxury, etc.)
-• Consider: drop shadows, gradients, 3D effects, or clean minimal — whatever creates maximum impact
-• Position where it commands attention without blocking the product
+=== TYPOGRAPHY RULES ===
+HEADLINE "${idea.headline}":
+• LARGE, bold, impossible to miss
+• Use drop shadow or outline if needed for contrast
+• Position: Upper third of image, never obscured
 
-SUBHEADLINE: "${idea.subheadline}"
-• Complement the headline — don't compete with it
-• Support the message, add value
-• Smaller but still readable at scroll-speed
+SUBHEADLINE "${idea.subheadline}":
+• Smaller, complements headline
+• Same font family, lighter weight
+• Below or near headline
 
-${needsKeyFeatures && idea.keyFeatures && idea.keyFeatures.length > 0 ? `
-=== KEY SELLING POINTS TO DISPLAY ON THE AD ===
-${idea.keyFeatures.map((feature) => `• ${feature}`).join('\n')}
+CTA "${idea.callToAction}":
+• Rounded pill or rectangle button
+• ${brandColors.accent} background with white/contrasting text
+• Subtle shadow, generous padding
+• Position: Bottom portion, easy to tap
 
-⚠️ CRITICAL: You have FULL CREATIVE FREEDOM on how to present these — think like a TOP-TIER GRAPHIC DESIGNER:
-- Design them as BEAUTIFUL VISUAL ELEMENTS, NOT a plain text list with checkmarks
-- Options for PREMIUM presentation:
-  1. STYLED FEATURE CARDS: Glass-morphism panels with subtle blur and border
-  2. ELEGANT INFO STRIPS: Horizontal bands with icon + text
-  3. GRADIENT TAGS: Modern pill shapes with brand colors
-  4. ICON-PAIRED LABELS: Custom icons (not basic checkmarks) with elegant typography
-  5. FLOATING ELEMENTS: 3D cards or badges that feel part of the composition
-  6. MINIMAL TYPOGRAPHY: Clean sans-serif with subtle color accents
+=== COMPOSITION ===
+1. HERO ELEMENT: ${isFoodService ? 'The FOOD dish' : isIntangibleService ? 'Abstract graphics or relevant objects' : isDigital ? 'Device mockup' : 'The product'} commands 40-50% of visual space
+2. CLEAR HIERARCHY: Eye flows from hero → headline → subheadline → CTA
+3. BREATHING ROOM: Premium ads are NOT crowded — leave margins
+4. CONTRAST: Text MUST be readable — dark text on light areas, light text on dark areas
+5. SINGLE FOCUS: One hero, one headline, one CTA — no visual clutter
 
-- They should look like a DESIGNED ELEMENT of the ad — NOT a plain text list pasted on top
-- Match the overall ad aesthetic and color scheme
-- Must be readable but VISUALLY INTEGRATED into the composition
-- Use brand colors for accents (${brandColors.secondary} or ${brandColors.accent})
-- Position: Lower portion of ad, NOT competing with headline
-- Include ALL points exactly as written
-` : ''}
-=== CTA BUTTON: "${idea.callToAction}" ===
-CRITICAL: Design a PREMIUM, MODERN call-to-action button:
-- DO NOT use ugly yellow boxes with black borders
-- DO NOT use clip-art style buttons
-- Options for ELEGANT CTA styling:
-  1. Rounded pill button with subtle gradient (using ${brandColors.accent})
-  2. Clean rectangle with rounded corners and soft shadow
-  3. Glass-morphism style with blur and transparency
-  4. Minimalist outlined button with hover effect appearance
-  5. Modern flat design with accent color fill
-- Typography: Clean, readable, professional font (NOT Comic Sans or similar)
-- Padding: Generous internal spacing — button should look tappable
-- Shadow: Subtle drop shadow or none — NO harsh black outlines
-- Position: Bottom-right, center-bottom, or integrated with price element
-- Size: Prominent but proportional to the overall design
+=== STRICT RULES ===
+❌ NO people, faces, hands, or human figures (AI struggles with these)
+❌ NO ugly starburst price badges or clip-art style elements
+❌ NO spelling errors — "${idea.headline}" must be EXACT
+❌ NO placeholder text like "Lorem ipsum" or "[text here]"
+✅ DO use the EXACT brand colors provided
+✅ DO make text readable at mobile scroll speed
+✅ DO create professional, agency-quality output
 
-=== COMPOSITION PRINCIPLES ===
-1. VISUAL HIERARCHY: ${isFoodService ? 'Food/Dish' : isIntangibleService ? 'Typography/Scene/Objects' : isDigital ? 'Device/Interface' : 'Product'} → Headline → Supporting text → CTA (in order of dominance)
-2. BREATHING ROOM: Don't crowd elements — premium ads have space
-3. FOCAL POINT: One clear hero element (${isFoodService ? 'the FOOD dish — make it irresistible, NO people' : isIntangibleService ? 'typography, abstract graphics, or professional objects — NO people' : isDigital ? 'the device mockup or transformation visual' : 'the product'})
-4. COLOR HARMONY: All colors work together, nothing clashes
-5. CONTRAST: Text is ALWAYS readable — if dark bg, light text and vice versa
-
-=== PROFESSIONAL STANDARDS ===
-- This ad should look like it was created by a $50,000/month agency
-- Every pixel should feel intentional and polished
-- If you saw this on Instagram, you would STOP scrolling
-- The brand colors should be so prominent that someone could identify the brand by color alone
-- Typography should look like a professional designed it — not default system fonts
-
-=== CANVAS ===
-Dimensions: EXACTLY ${width}x${height} pixels
-Aspect Ratio: ${aspectRatio}
-${aspectRatio === '1:1' ? '→ PERFECT SQUARE — equal width and height' : aspectRatio === '9:16' ? '→ VERTICAL/PORTRAIT — taller than wide, phone-screen format' : '→ HORIZONTAL/LANDSCAPE — wider than tall'}
-
-=== FINAL CHECKLIST ===
-⚠️ TEXT ACCURACY:
-- "${idea.headline}" appears EXACTLY ONCE — spelled perfectly
-- "${idea.subheadline}" appears EXACTLY ONCE — spelled perfectly
-- "${idea.callToAction}" appears EXACTLY ONCE — styled as button
-
-⚠️ COLOR COMPLIANCE:
-- Primary color (${brandColors.primary}) is DOMINANT in the design
-- Accent color (${brandColors.accent}) is used for the CTA
-- The color palette feels cohesive and branded
-
-CREATE: A ${idea.platform} advertisement worthy of a major brand campaign. Make ${brandName}'s ${idea.productName} ${isService ? 'feel essential and irresistible' : isDigital ? 'look transformative and must-have' : 'look absolutely irresistible'}.`;
+Create an advertisement that would make someone STOP scrolling. This should look like it cost $10,000 to produce.`;
 }

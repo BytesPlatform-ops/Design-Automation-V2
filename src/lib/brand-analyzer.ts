@@ -1,6 +1,9 @@
 import OpenAI from 'openai';
-import { ScrapedWebsiteData } from './scraper';
+import { UnifiedScrapedData } from './unified-scraper';
 import { ProductType } from '@/types';
+
+// Legacy type alias for backward compatibility
+type ScrapedWebsiteData = UnifiedScrapedData;
 
 // Lazy initialization
 let openaiClient: OpenAI | null = null;
@@ -69,18 +72,28 @@ export async function analyzeBrand(
   const openai = getOpenAI();
 
   // Prepare condensed data for the prompt
+  // Map unified scraper properties to what the AI prompt expects
   const condensedData = {
     url: scrapedData.url,
-    title: scrapedData.title,
-    description: scrapedData.description,
-    ogData: scrapedData.ogData,
-    headings: scrapedData.headings.slice(0, 10),
-    paragraphs: scrapedData.paragraphs.slice(0, 5),
-    colors: scrapedData.colors.slice(0, 10),
+    title: scrapedData.metaTitle,
+    description: scrapedData.metaDescription,
+    ogData: {
+      title: scrapedData.metaTitle,
+      description: scrapedData.metaDescription,
+      image: scrapedData.ogImage,
+      siteName: scrapedData.brandName,
+    },
+    headings: scrapedData.headlines.slice(0, 10),
+    paragraphs: scrapedData.descriptions.slice(0, 5),
+    colors: scrapedData.allColors.slice(0, 10),
     products: scrapedData.products.slice(0, 10),
     logoUrl: scrapedData.logo,
     socialLinks: scrapedData.socialLinks,
-    contactInfo: scrapedData.contactInfo,
+    contactInfo: {
+      emails: scrapedData.contactEmail ? [scrapedData.contactEmail] : [],
+      phones: scrapedData.phone ? [scrapedData.phone] : [],
+      addresses: scrapedData.address ? [scrapedData.address] : [],
+    },
   };
 
   const systemPrompt = `You are a brand identity expert. Analyze the provided website data and extract comprehensive brand information.

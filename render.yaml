@@ -1,0 +1,26 @@
+# Render Blueprint for design_automation_v3
+# This configures the deployment with Puppeteer support
+
+services:
+  - type: web
+    name: design-automation
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ENABLE_PUPPETEER
+        value: "true"
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/chromium
+      # These should be set in Render Dashboard (secret)
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_GENERATIVE_AI_API_KEY
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

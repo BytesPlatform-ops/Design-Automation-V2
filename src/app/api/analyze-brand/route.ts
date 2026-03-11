@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { scrapeWebsite } from '@/lib/scraper';
+import { scrapeWebsite } from '@/lib/unified-scraper';
 import { analyzeBrand, ExtractedBrandInfo, brandInfoToBusinessDetails } from '@/lib/brand-analyzer';
 
 export interface AnalyzeBrandResponse {

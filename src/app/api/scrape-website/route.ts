@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { scrapeWebsite, ScrapedWebsiteData } from '@/lib/scraper';
+import { scrapeWebsite, UnifiedScrapedData } from '@/lib/unified-scraper';
 
 export interface ScrapeWebsiteResponse {
   success: boolean;
-  data?: ScrapedWebsiteData;
+  data?: UnifiedScrapedData;
   error?: string;
 }
 
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     const scrapedData = await scrapeWebsite(normalizedUrl);
     
     const duration = Date.now() - startTime;
-    console.log(`[Scraper] Completed in ${duration}ms. Found ${scrapedData.images.length} images, ${scrapedData.products.length} products`);
+    console.log(`[Scraper] Completed in ${duration}ms. Found ${scrapedData.allImages.length} images, ${scrapedData.products.length} products (method: ${scrapedData.extractionMethod})`);
 
     return NextResponse.json({
       success: true,
