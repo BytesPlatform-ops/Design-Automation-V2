@@ -180,9 +180,24 @@ function getImageDimensions(aspectRatio: string): { width: number; height: numbe
 }
 
 async function fetchImageAsBase64(url: string | null | undefined): Promise<{ data: string; mimeType: string } | null> {
-  // Validate URL before attempting fetch
-  if (!url || url === 'null' || url === 'undefined' || !url.startsWith('http')) {
-    console.log('[URL-Generation] Invalid image URL, skipping fetch:', url);
+  if (!url || url === 'null' || url === 'undefined') {
+    return null;
+  }
+
+  // Handle data URLs directly (e.g. base64-encoded logos from Puppeteer)
+  if (url.startsWith('data:')) {
+    const match = url.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+      console.log(`[URL-Generation] Using inline data URL (${match[1]})`);
+      return { data: match[2], mimeType: match[1] };
+    }
+    console.log('[URL-Generation] Unsupported data URL format, skipping');
+    return null;
+  }
+
+  // Validate HTTP URL
+  if (!url.startsWith('http')) {
+    console.log('[URL-Generation] Invalid image URL, skipping fetch:', url?.substring(0, 100));
     return null;
   }
   
@@ -195,18 +210,25 @@ async function fetchImageAsBase64(url: string | null | undefined): Promise<{ dat
   try {
     const response = await fetch(url);
     if (!response.ok) return null;
-    
+
     const contentType = response.headers.get('content-type') || 'image/jpeg';
-    
-    // Skip SVG content type
+
+    // CRITICAL: Only accept actual image content types
+    // Reject HTML pages, JSON, text, etc. that got passed as "image" URLs
+    if (!contentType.startsWith('image/')) {
+      console.log(`[URL-Generation] Not an image (${contentType}), skipping:`, url.substring(0, 100));
+      return null;
+    }
+
+    // Skip SVG content type - Gemini doesn't support it
     if (contentType.includes('svg')) {
       console.log('[URL-Generation] SVG content type not supported, skipping');
       return null;
     }
-    
+
     const arrayBuffer = await response.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString('base64');
-    
+
     return {
       data: base64,
       mimeType: contentType,
@@ -270,7 +292,7 @@ async function generateAdFromIdea(
   }
 
   // Build the prompt
-  const prompt = buildAdPrompt(idea, brandName, brandColors, width, height, !!idea.productImage, productType, serviceSubType);
+  const prompt = buildAdPrompt(idea, brandName, brandColors, width, height, !!idea.productImage, productType, serviceSubType, logoUrl);
   parts.push({ text: prompt });
 
   console.log(`[URL-Generation] Generating ad for: ${idea.productName}`);
@@ -322,7 +344,8 @@ function buildAdPrompt(
   height: number,
   hasProductImage: boolean,
   productType: 'physical' | 'digital' | 'service' = 'physical',
-  serviceSubType?: 'food-restaurant' | 'saas-platform' | 'intangible'
+  serviceSubType?: 'food-restaurant' | 'saas-platform' | 'intangible',
+  logoUrl?: string
 ): string {
   // Determine aspect ratio string
   const aspectRatio = width === height ? '1:1' : width > height ? '16:9' : '9:16';
@@ -358,22 +381,20 @@ function buildAdPrompt(
   // Price display instruction - PREMIUM STYLING (only if valid price)
   const priceInstruction = isValidPrice(idea.productPrice)
     ? `
-=== PRICE DISPLAY: "${idea.productPrice}" ===
-CRITICAL: Design the price as a PREMIUM, PROFESSIONAL element:
-- DO NOT use ugly starburst or cheap-looking badges
-- Options for ELEGANT price styling:
-  1. Clean pill/badge with subtle gradient and soft shadow
-  2. Minimalist rectangle with accent color background
-  3. Elegant serif or modern sans-serif typography standalone
-  4. Subtle glass-morphism card effect
-  5. Integrated into a ribbon that flows with the design
-- Position: Near product but NOT blocking it — bottom corner, floating beside, or in info banner
-- Typography: Clean, readable, premium-feeling font
-- Color: Use brand accent color (${brandColors.accent}) or complementary tone
-- NO cheap clip-art, NO starburst shapes, NO carnival-style pricing`
+=== PRICE DISPLAY ===
+PRICE TEXT: "${idea.productPrice}" — display this EXACTLY as written, character for character.
+🚫 DO NOT change the currency symbol. If it says "Rs" use "Rs". If it says "$" use "$". If it says "€" use "€".
+🚫 DO NOT invent a price or change the numbers. Write "${idea.productPrice}" EXACTLY.
+
+STYLING:
+- Clean pill/badge or rounded rectangle with ${brandColors.accent} background
+- White or high-contrast bold text
+- Position: Near the product, NOT blocking it — floating badge, corner placement, or info banner
+- Size: Readable but not dominant — smaller than headline
+- NO starburst shapes, NO carnival-style pricing, NO cheap clip-art badges`
     : `
 ⚠️ NO PRICE AVAILABLE - DO NOT DISPLAY ANY PRICE ON THIS AD.
-- Do NOT write "Price: null", "Price: [null]", "null", or any placeholder
+- Do NOT write "Price: null", "Price: [null]", "null", "$0", or any placeholder
 - Simply skip the price element entirely
 - If you need to fill space, use the CTA button or leave breathing room`;
 
@@ -510,6 +531,10 @@ Create a stunning, photorealistic representation of "${idea.productName}".
           ? 'DIGITAL PRODUCT (focus on transformation, convenience, knowledge)' 
           : 'PHYSICAL PRODUCT (focus on the tangible item)';
 
+  // Detect if this should be a 3D render
+  const is3DStyle = idea.visualStyle === '3D' || idea.visualStyle === 'isometric' ||
+    /3d|three.?dimensional|isometric|volumetric|glossy render/i.test(idea.visualConcept);
+
   return `You are a legendary advertising creative director. Your ads have won Cannes Lions and your campaigns achieve 10x industry engagement. Create a SCROLL-STOPPING advertisement.
 
 === CREATIVE BRIEF ===
@@ -520,41 +545,59 @@ BUSINESS TYPE: ${businessTypeDesc}
 AUDIENCE: ${idea.targetAudience}
 PLATFORM: ${idea.platform}
 CREATIVE ANGLE: ${idea.adAngle}
+RENDER STYLE: ${is3DStyle ? '3D RENDERED — hyper-realistic, ultra-detailed CGI. Glossy materials with intricate reflections, volumetric rim lighting, shallow depth of field, 4K UHD quality with global illumination and HDR lighting. This MUST look like Octane/Blender studio render, NOT a photo.' : idea.visualStyle === 'cinematic' ? 'CINEMATIC — dramatic key lighting, film grain, shallow depth of field, lens flare, cinematic motion blur, movie-poster atmosphere' : 'PHOTOREALISTIC — shot at f/2.8, professional studio lighting, sharp focus on product, creamy background bokeh, 4K detail'}
 ${priceInstruction}
 
 ${visualizationInstruction}
+
+=== BRAND LOGO ===
+${logoUrl ? `A logo image has been provided above. You MUST include the ${brandName} logo in the ad:
+- Place it in the TOP-LEFT or TOP-RIGHT corner
+- Keep it small but clearly visible (roughly 8-12% of ad width)
+- Do NOT distort, crop, or recolor the logo
+- If the logo has a transparent background, place it on a contrasting area so it's visible` : `Brand name "${brandName}" must appear as text in the ad — place it in the top-left or top-right corner in a clean, readable font.`}
 
 === MANDATORY COLOR PALETTE ===
 You MUST build the entire ad around these brand colors:
 
 PRIMARY (${brandColors.primary}):
 → Use for: main background areas, large shapes, dominant visual weight
-→ This color should be IMMEDIATELY noticeable in the ad
+→ This color should be IMMEDIATELY noticeable — at least 40% of the ad area
+→ This is the brand's DNA color — it MUST dominate
 
 SECONDARY (${brandColors.secondary}):
 → Use for: supporting elements, gradients with primary, text backgrounds
 → Creates depth and visual interest
 
 ACCENT (${brandColors.accent}):
-→ Use for: CTA button, highlights, key focal points
+→ Use for: CTA button, highlights, key focal points, price badges
 → This draws the eye to action items
+
+🚫 DO NOT use random colors (blue, yellow, orange, green) that aren't in this palette.
+🚫 DO NOT use generic blue CTA buttons — use ${brandColors.accent} for CTAs.
 
 === VISUAL DIRECTION ===
 ${idea.visualConcept}
+${is3DStyle ? `
+🎨 3D RENDER REQUIREMENTS (follow these EXACTLY for CGI quality):
+- MATERIALS: Ultra-glossy, reflective surfaces with intricate detail — condensation drops, fingerprint-free glass, subsurface scattering on food
+- LIGHTING: 3-point volumetric setup — key light at 45°, ${brandColors.primary}-tinted rim light from behind, soft ${brandColors.accent} fill. Add god rays/caustics where appropriate
+- DEPTH: Shallow depth of field (f/1.4 equivalent), creamy bokeh in background, sharp focus on hero product, reflective ground plane with soft falloff
+- PARTICLES: Frozen mid-air elements — droplets, crumbs, sparkles, steam wisps — with cinematic motion blur
+- RENDER QUALITY: 4K UHD, global illumination, HDR lighting, ambient occlusion, raytraced reflections
+- Overall feel: Octane/Blender studio render quality, hyper-detailed, NOT flat photography` : ''}
 
 === TYPOGRAPHY DIRECTION ===
-You have COMPLETE CREATIVE FREEDOM on typography choices. Think like a world-class typographer:
+You have FULL CREATIVE FREEDOM on typography. Choose fonts, sizes, weights, effects, and placement that best match ${brandName}'s brand personality and this ad's mood.
 
 HEADLINE: "${idea.headline}"
-• Make it IMPOSSIBLE TO IGNORE
-• Choose a font style that matches the brand energy (bold sans-serif for modern, elegant serif for luxury, etc.)
-• Consider: drop shadows, gradients, 3D effects, or clean minimal — whatever creates maximum impact
-• Position where it commands attention without blocking the product
+→ This is the second most dominant element after the product. Make it stand out.
+→ ONLY RULE: Must be readable — ensure high contrast against the background.
 
 SUBHEADLINE: "${idea.subheadline}"
-• Complement the headline — don't compete with it
-• Support the message, add value
-• Smaller but still readable at scroll-speed
+→ Supports the headline. Smaller, complementary.
+
+Think like a top typographer — bold serif for luxury, playful script for casual, clean sans-serif for tech, etc. YOU decide what fits ${brandName}.
 
 ${needsKeyFeatures && idea.keyFeatures && idea.keyFeatures.length > 0 ? `
 === KEY SELLING POINTS TO DISPLAY ON THE AD ===
@@ -578,20 +621,18 @@ ${idea.keyFeatures.map((feature) => `• ${feature}`).join('\n')}
 - Include ALL points exactly as written
 ` : ''}
 === CTA BUTTON: "${idea.callToAction}" ===
-CRITICAL: Design a PREMIUM, MODERN call-to-action button:
-- DO NOT use ugly yellow boxes with black borders
-- DO NOT use clip-art style buttons
-- Options for ELEGANT CTA styling:
-  1. Rounded pill button with subtle gradient (using ${brandColors.accent})
-  2. Clean rectangle with rounded corners and soft shadow
-  3. Glass-morphism style with blur and transparency
-  4. Minimalist outlined button with hover effect appearance
-  5. Modern flat design with accent color fill
-- Typography: Clean, readable, professional font (NOT Comic Sans or similar)
-- Padding: Generous internal spacing — button should look tappable
-- Shadow: Subtle drop shadow or none — NO harsh black outlines
-- Position: Bottom-right, center-bottom, or integrated with price element
-- Size: Prominent but proportional to the overall design
+CRITICAL: The CTA button is one of the most important elements. It MUST look professional:
+- Background color: ${brandColors.accent} (the brand's accent color — NOT generic blue, NOT yellow)
+- Text color: White or high-contrast against ${brandColors.accent}
+- Shape: Rounded rectangle (border-radius ~8-12px) or pill shape
+- Font: Bold, clean sans-serif, ALL CAPS or Title Case
+- Size: Large enough to be the 3rd most visible element (after product + headline)
+- Shadow: Subtle drop shadow for depth
+- Position: Bottom-right or center-bottom of the ad
+- Padding: Generous — it should feel tappable and premium
+
+🚫 DO NOT: use yellow/orange generic buttons, clip-art style, harsh black borders, or tiny unreadable buttons
+🚫 DO NOT: use any color not in the brand palette for the button
 
 === COMPOSITION PRINCIPLES ===
 1. VISUAL HIERARCHY: ${isFoodService ? 'Food/Dish' : isIntangibleService ? 'Typography/Scene/Objects' : isDigital ? 'Device/Interface' : 'Product'} → Headline → Supporting text → CTA (in order of dominance)
@@ -612,16 +653,32 @@ Dimensions: EXACTLY ${width}x${height} pixels
 Aspect Ratio: ${aspectRatio}
 ${aspectRatio === '1:1' ? '→ PERFECT SQUARE — equal width and height' : aspectRatio === '9:16' ? '→ VERTICAL/PORTRAIT — taller than wide, phone-screen format' : '→ HORIZONTAL/LANDSCAPE — wider than tall'}
 
-=== FINAL CHECKLIST ===
+=== FINAL CHECKLIST — VERIFY BEFORE OUTPUTTING ===
+
 ⚠️ TEXT ACCURACY:
-- "${idea.headline}" appears EXACTLY ONCE — spelled perfectly
-- "${idea.subheadline}" appears EXACTLY ONCE — spelled perfectly
-- "${idea.callToAction}" appears EXACTLY ONCE — styled as button
+- "${idea.headline}" appears EXACTLY ONCE — spelled perfectly, BOLD, large
+- "${idea.subheadline}" appears EXACTLY ONCE — spelled perfectly, smaller than headline
+- "${idea.callToAction}" appears EXACTLY ONCE — inside a styled ${brandColors.accent} button
+${isValidPrice(idea.productPrice) ? `- Price "${idea.productPrice}" appears EXACTLY as written — correct currency, correct numbers` : '- NO price text anywhere on the ad'}
 
 ⚠️ COLOR COMPLIANCE:
-- Primary color (${brandColors.primary}) is DOMINANT in the design
-- Accent color (${brandColors.accent}) is used for the CTA
-- The color palette feels cohesive and branded
+- Primary color (${brandColors.primary}) is DOMINANT — at least 40% of the ad
+- Accent color (${brandColors.accent}) is used for the CTA button — NOT generic blue
+- NO random colors that aren't in the brand palette
+- The ad screams "${brandName}" through color alone
 
-CREATE: A ${idea.platform} advertisement worthy of a major brand campaign. Make ${brandName}'s ${idea.productName} ${isService ? 'feel essential and irresistible' : isDigital ? 'look transformative and must-have' : 'look absolutely irresistible'}.`;
+⚠️ LOGO/BRAND:
+${logoUrl ? `- ${brandName} logo appears in the top corner — small, clear, not distorted` : `- "${brandName}" text appears in the top corner area`}
+
+⚠️ TYPOGRAPHY:
+- Headline font is BOLD and heavyweight — readable at thumbnail size
+- Text has HIGH CONTRAST against its background — no light-on-light or dark-on-dark
+- All text is clean, professional, and properly spaced
+
+⚠️ OVERALL QUALITY:
+- This ad looks like a $50,000 agency produced it
+- If scrolling Instagram, you would STOP to look at this
+${is3DStyle ? '- The 3D render is glossy, polished, and has volumetric depth' : ''}
+
+CREATE: A ${idea.platform} advertisement for ${brandName}'s ${idea.productName} that is SCROLL-STOPPING, brand-accurate, and visually stunning.`;
 }

@@ -212,6 +212,7 @@ export interface URLAdIdea {
   callToAction: string;
   adAngle: string;
   visualConcept: string;
+  visualStyle?: '3D' | 'photorealistic' | 'flat' | 'cinematic' | 'isometric';
   colorScheme: {
     primary: string;
     secondary: string;

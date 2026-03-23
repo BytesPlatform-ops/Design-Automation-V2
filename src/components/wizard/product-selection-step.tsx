@@ -12,12 +12,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   ArrowRight,
   Package,
   Check,
   Image as ImageIcon,
   Sparkles,
+  Plus,
+  X,
 } from 'lucide-react';
 import { ExtractedBrandInfo } from '@/lib/brand-analyzer';
 import { AspectRatio } from '@/types';
@@ -46,11 +50,16 @@ export function ProductSelectionStep({
   onSubmit,
   onBack,
 }: ProductSelectionStepProps) {
-  const products = brandInfo.products;
+  const [allProducts, setAllProducts] = useState(brandInfo.products);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(
-    new Set(products.slice(0, 3).map((_, i) => i)) // Default select first 3
+    new Set(brandInfo.products.slice(0, 3).map((_, i) => i)) // Default select first 3
   );
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1:1');
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customPrice, setCustomPrice] = useState('');
+  const [customDescription, setCustomDescription] = useState('');
+  const [customImageUrl, setCustomImageUrl] = useState('');
 
   const toggleProduct = (index: number) => {
     const newSelected = new Set(selectedIndices);
@@ -66,7 +75,7 @@ export function ProductSelectionStep({
   };
 
   const selectAll = () => {
-    const maxSelect = Math.min(products.length, 5);
+    const maxSelect = Math.min(allProducts.length, 5);
     setSelectedIndices(new Set(Array.from({ length: maxSelect }, (_, i) => i)));
   };
 
@@ -74,12 +83,51 @@ export function ProductSelectionStep({
     setSelectedIndices(new Set());
   };
 
+  const addCustomProduct = () => {
+    if (!customName.trim()) return;
+    const newProduct = {
+      name: customName.trim(),
+      description: customDescription.trim() || `${customName.trim()} from ${brandInfo.brandName}`,
+      price: customPrice.trim() || undefined,
+      imageUrl: customImageUrl.trim() || undefined,
+    };
+    const newIndex = allProducts.length;
+    setAllProducts(prev => [...prev, newProduct]);
+    // Auto-select the new product if under limit
+    if (selectedIndices.size < 5) {
+      setSelectedIndices(prev => new Set([...prev, newIndex]));
+    }
+    // Reset form
+    setCustomName('');
+    setCustomPrice('');
+    setCustomDescription('');
+    setCustomImageUrl('');
+    setShowAddForm(false);
+  };
+
+  const removeCustomProduct = (index: number) => {
+    // Only allow removing products that were manually added (beyond original list)
+    if (index < brandInfo.products.length) return;
+    setAllProducts(prev => prev.filter((_, i) => i !== index));
+    // Adjust selected indices
+    setSelectedIndices(prev => {
+      const newSet = new Set<number>();
+      for (const i of prev) {
+        if (i < index) newSet.add(i);
+        else if (i > index) newSet.add(i - 1);
+        // skip the removed index
+      }
+      return newSet;
+    });
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedProducts = products.filter((_, i) => selectedIndices.has(i));
+    const selectedProducts = allProducts.filter((_, i) => selectedIndices.has(i));
     onSubmit(selectedProducts, aspectRatio);
   };
 
+  const products = allProducts;
   const hasProducts = products.length > 0;
   const selectedCount = selectedIndices.size;
   const canSubmit = selectedCount > 0 || !hasProducts;
@@ -161,12 +209,13 @@ export function ProductSelectionStep({
             {products.map((product, index) => {
               const isSelected = selectedIndices.has(index);
               const isDisabled = !isSelected && selectedCount >= 5;
+              const isCustom = index >= brandInfo.products.length;
 
               return (
                 <div
                   key={index}
                   onClick={() => !isDisabled && toggleProduct(index)}
-                  className={`flex gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                  className={`flex gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all relative ${
                     isSelected
                       ? 'border-purple-500 bg-purple-500/5'
                       : isDisabled
@@ -194,7 +243,14 @@ export function ProductSelectionStep({
                   )}
 
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm truncate">{product.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-sm truncate">{product.name}</p>
+                      {isCustom && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                          Custom
+                        </Badge>
+                      )}
+                    </div>
                     {product.price && isValidPrice(product.price) && (
                       <Badge variant="secondary" className="text-xs mt-1">
                         {product.price}
@@ -207,16 +263,109 @@ export function ProductSelectionStep({
                     )}
                   </div>
 
-                  {isSelected && (
+                  {isSelected && !isCustom && (
                     <div className="flex items-center">
                       <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center">
                         <Check className="w-4 h-4 text-white" />
                       </div>
                     </div>
                   )}
+
+                  {isCustom && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeCustomProduct(index);
+                      }}
+                      className="absolute top-2 right-2 w-5 h-5 rounded-full bg-muted hover:bg-destructive hover:text-white flex items-center justify-center transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
               );
             })}
+
+            {/* Add Custom Product Button / Form */}
+            {!showAddForm ? (
+              <button
+                type="button"
+                onClick={() => setShowAddForm(true)}
+                className="flex items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-muted hover:border-purple-300 hover:bg-purple-500/5 transition-all cursor-pointer min-h-[80px]"
+              >
+                <Plus className="w-5 h-5 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground font-medium">Add Product</span>
+              </button>
+            ) : (
+              <div className="p-4 rounded-xl border-2 border-purple-300 bg-purple-500/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Add Custom Product</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddForm(false);
+                      setCustomName('');
+                      setCustomPrice('');
+                      setCustomDescription('');
+                      setCustomImageUrl('');
+                    }}
+                    className="w-5 h-5 rounded-full bg-muted hover:bg-muted-foreground/20 flex items-center justify-center"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+                <Input
+                  placeholder="Product name *"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  className="h-8 text-sm"
+                  autoFocus
+                />
+                <Input
+                  placeholder="Price (optional)"
+                  value={customPrice}
+                  onChange={(e) => setCustomPrice(e.target.value)}
+                  className="h-8 text-sm"
+                />
+                <Textarea
+                  placeholder="Short description (optional)"
+                  value={customDescription}
+                  onChange={(e) => setCustomDescription(e.target.value)}
+                  className="text-sm min-h-[60px] resize-none"
+                  rows={2}
+                />
+                <div className="space-y-1">
+                  <Input
+                    placeholder="Product image URL (optional)"
+                    value={customImageUrl}
+                    onChange={(e) => setCustomImageUrl(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                  {customImageUrl && (
+                    <div className="flex items-center gap-2">
+                      <img
+                        src={customImageUrl}
+                        alt="Preview"
+                        className="w-10 h-10 object-cover rounded border"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                      <span className="text-[10px] text-muted-foreground">Preview</span>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={addCustomProduct}
+                  disabled={!customName.trim()}
+                  className="w-full"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add
+                </Button>
+              </div>
+            )}
           </div>
 
           {selectedCount >= 5 && (

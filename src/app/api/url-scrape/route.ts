@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { enhancedScrapeWebsite, EnhancedScrapedData, ScrapedProduct } from '@/lib/enhanced-scraper';
+import { enhancedScrapeWebsite, EnhancedScrapedData, scrapeSubpage, discoverProductPagesFromLinks } from '@/lib/enhanced-scraper';
 import { scrapeWithPuppeteer, isPuppeteerAvailable } from '@/lib/puppeteer-scraper';
 import OpenAI from 'openai';
 
@@ -10,19 +10,19 @@ export interface URLBrandAnalysis {
   brandName: string;
   tagline: string;
   industry: string;
-  
+
   // Visual Identity
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
   suggestedFontStyle: 'modern' | 'classic' | 'playful' | 'elegant' | 'bold';
-  
+
   // Messaging
   brandVoice: string;
   targetAudience: string;
   uniqueSellingPoints: string[];
   keyMessages: string[];
-  
+
   // Products (enhanced)
   products: Array<{
     name: string;
@@ -32,16 +32,12 @@ export interface URLBrandAnalysis {
     keyFeatures: string[];
     suggestedAdAngle: string;
   }>;
-  
+
   // Business Detection
   productType: 'physical' | 'digital' | 'service';
-  // Sub-type for services:
-  // - 'food-restaurant': treats products like physical items (meals, dishes)
-  // - 'saas-platform': digital platforms/tools with feature highlights
-  // - 'intangible': consulting/agencies that use selling points
   serviceSubType?: 'food-restaurant' | 'saas-platform' | 'intangible';
   isEcommerce: boolean;
-  
+
   // Ad Generation Context
   adRecommendations: {
     bestPlatforms: string[];
@@ -54,60 +50,45 @@ export interface URLBrandAnalysis {
 export async function POST(req: Request) {
   try {
     const { url } = await req.json();
-    
+
     if (!url) {
       return NextResponse.json({ error: 'URL is required' }, { status: 400 });
     }
 
-    console.log('[URL-Scrape] Starting enhanced scrape for:', url);
-    
-    // Step 1: Try Puppeteer first (works on Render, local dev)
+    console.log('[URL-Scrape] Starting scrape for:', url);
+
+    // Step 1: Scrape the website (Puppeteer for JS-heavy sites, Cheerio fallback)
     let scrapedData: EnhancedScrapedData;
-    
+
     if (isPuppeteerAvailable()) {
       console.log('[URL-Scrape] Puppeteer available, using headless browser...');
       const puppeteerData = await scrapeWithPuppeteer(url);
-      
+
       if (puppeteerData) {
-        console.log(`[URL-Scrape] Puppeteer found ${puppeteerData.products.length} products`);
-        
-        // Determine product type based on website category
-        let estimatedProductType: 'physical' | 'digital' | 'service' = 'physical';
-        if (puppeteerData.websiteCategory === 'saas' || puppeteerData.websiteCategory === 'agency') {
-          estimatedProductType = 'service';
-        } else if (puppeteerData.websiteCategory === 'landing-page') {
-          estimatedProductType = 'digital';
-        }
-        
+        console.log(`[URL-Scrape] Puppeteer scraped, page content: ${puppeteerData.pageContent.length} chars`);
+
         // Convert to EnhancedScrapedData format
         scrapedData = {
           url,
           brandName: puppeteerData.brandName || new URL(url).hostname.replace('www.', ''),
-          tagline: puppeteerData.landingPageContent.heroSubheadline,
+          tagline: null,
           logo: puppeteerData.logo,
           favicon: null,
           primaryColor: puppeteerData.primaryColor,
           secondaryColor: puppeteerData.secondaryColor,
           accentColor: puppeteerData.accentColor,
           allColors: [puppeteerData.primaryColor, puppeteerData.secondaryColor, puppeteerData.accentColor].filter(Boolean) as string[],
-          products: puppeteerData.products,
+          products: [],
           productCategories: [],
           heroImage: null,
           bannerImages: [],
           allImages: [],
-          headlines: puppeteerData.landingPageContent.heroHeadline ? [puppeteerData.landingPageContent.heroHeadline] : [],
-          descriptions: puppeteerData.landingPageContent.serviceDescriptions,
-          uniqueSellingPoints: puppeteerData.landingPageContent.valuePropositions,
+          headlines: [],
+          descriptions: [],
+          uniqueSellingPoints: [],
           landingPageContent: {
-            heroHeadline: puppeteerData.landingPageContent.heroHeadline,
-            heroSubheadline: puppeteerData.landingPageContent.heroSubheadline,
-            ctaText: puppeteerData.landingPageContent.ctaText,
-            valuePropositions: puppeteerData.landingPageContent.valuePropositions,
-            serviceDescriptions: puppeteerData.landingPageContent.serviceDescriptions,
-            pricingInfo: puppeteerData.landingPageContent.pricingInfo,
+            ...puppeteerData.landingPageContent,
             testimonials: [],
-            statsNumbers: puppeteerData.landingPageContent.statsNumbers,
-            featuresList: puppeteerData.landingPageContent.featuresList,
           },
           contactEmail: null,
           phone: null,
@@ -117,36 +98,102 @@ export async function POST(req: Request) {
           metaDescription: puppeteerData.description || '',
           ogImage: null,
           structuredData: [],
-          isEcommerce: puppeteerData.websiteCategory === 'ecommerce' || puppeteerData.websiteCategory === 'restaurant',
-          hasProducts: puppeteerData.products.length > 0,
-          estimatedProductType,
-          websiteCategory: puppeteerData.websiteCategory,
+          isEcommerce: false,
+          hasProducts: false,
+          estimatedProductType: 'physical',
+          websiteCategory: 'unknown',
+          pageContent: puppeteerData.pageContent,
+          discoveredSubpages: [], // Will be populated below
         };
+
+        // Use links extracted from Puppeteer's rendered DOM for subpage discovery.
+        // This works on SPAs where plain fetch/Cheerio would get empty nav links.
+        if (puppeteerData.navLinks && puppeteerData.navLinks.length > 0) {
+          const normalizedUrl = url.startsWith('http') ? url : `https://${url}`;
+          scrapedData.discoveredSubpages = discoverProductPagesFromLinks(
+            puppeteerData.navLinks,
+            new URL(normalizedUrl)
+          );
+          console.log('[URL-Scrape] Puppeteer subpage discovery:', scrapedData.discoveredSubpages);
+        } else {
+          console.log('[URL-Scrape] Puppeteer returned no nav links for subpage discovery');
+        }
       } else {
         console.log('[URL-Scrape] Puppeteer failed, falling back to Cheerio...');
         scrapedData = await enhancedScrapeWebsite(url);
       }
     } else {
-      console.log('[URL-Scrape] Puppeteer not available, using Cheerio scraper...');
+      console.log('[URL-Scrape] Puppeteer not available, using Cheerio...');
       scrapedData = await enhancedScrapeWebsite(url);
     }
-    
+
     console.log('[URL-Scrape] Scraped data:', {
       brandName: scrapedData.brandName,
-      productsFound: scrapedData.products.length,
       hasLogo: !!scrapedData.logo,
       primaryColor: scrapedData.primaryColor,
+      schemaProducts: scrapedData.products.length,
+      pageContentLength: scrapedData.pageContent?.length || 0,
     });
 
-    // Step 2: AI Analysis to enhance the scraped data
-    const analysis = await analyzeScrapedData(scrapedData);
-    
+    // Step 1.5: Discover and scrape product-rich subpages
+    const baseUrl = new URL(url.startsWith('http') ? url : `https://${url}`);
+
+    // Use subpages already discovered during the initial scrape (no double-fetch)
+    const subpageUrls = scrapedData.discoveredSubpages || [];
+    console.log('[URL-Scrape] Discovered subpages:', subpageUrls);
+
+    // Scrape subpages in parallel (max 3, with timeout)
+    if (subpageUrls.length > 0) {
+      console.log(`[URL-Scrape] Scraping ${subpageUrls.length} subpages for additional products...`);
+      const subpageResults = await Promise.allSettled(
+        subpageUrls.map(spUrl => scrapeSubpage(spUrl, baseUrl))
+      );
+
+      let subpageProducts = 0;
+      let subpageContent = '';
+
+      for (const result of subpageResults) {
+        if (result.status === 'fulfilled') {
+          const { products, pageContent } = result.value;
+
+          // Merge subpage schema.org products (deduplicate by name)
+          const existingNames = new Set(scrapedData.products.map(p => p.name.toLowerCase()));
+          for (const product of products) {
+            if (!existingNames.has(product.name.toLowerCase())) {
+              existingNames.add(product.name.toLowerCase());
+              scrapedData.products.push(product);
+              subpageProducts++;
+            }
+          }
+
+          // Append subpage content for AI analysis
+          if (pageContent) {
+            subpageContent += '\n' + pageContent;
+          }
+        }
+      }
+
+      // Append subpage content to main page content (within limits)
+      if (subpageContent) {
+        const mainContentLength = scrapedData.pageContent?.length || 0;
+        const availableSpace = 50000 - mainContentLength; // Increased limit for multi-page
+        if (availableSpace > 0) {
+          scrapedData.pageContent = (scrapedData.pageContent || '') + subpageContent.slice(0, availableSpace);
+        }
+      }
+
+      console.log(`[URL-Scrape] Subpage scraping done: +${subpageProducts} new products, content now ${scrapedData.pageContent?.length || 0} chars`);
+    }
+
+    // Step 2: AI-powered extraction + analysis (single call)
+    const analysis = await extractAndAnalyze(scrapedData);
+
     return NextResponse.json({
       success: true,
       scrapedData,
       analysis,
     });
-    
+
   } catch (error) {
     console.error('[URL-Scrape] Error:', error);
     return NextResponse.json(
@@ -156,321 +203,287 @@ export async function POST(req: Request) {
   }
 }
 
-async function analyzeScrapedData(data: EnhancedScrapedData): Promise<URLBrandAnalysis> {
-  // Only send first 15 products to AI for analysis (to avoid token limits)
-  const productsForAnalysis = data.products.slice(0, 15);
-  
-  // Get landing page content for service/SaaS sites
-  const landingContent = data.landingPageContent;
-  const websiteCategory = data.websiteCategory || 'unknown';
-  
-  console.log('[URL-Scrape] Website Category:', websiteCategory);
-  console.log('[URL-Scrape] Landing Page Content:', {
-    heroHeadline: landingContent?.heroHeadline,
-    ctaText: landingContent?.ctaText,
-    valuePropositions: landingContent?.valuePropositions?.slice(0, 3),
-    pricingPlans: landingContent?.pricingInfo?.length,
-    features: landingContent?.featuresList?.length,
-  });
-  
-  const prompt = `Analyze this scraped website data and provide brand analysis for ad generation.
+/**
+ * AI-powered extraction + analysis in ONE call.
+ *
+ * Instead of using hardcoded CSS selectors, we send the structured page content
+ * to GPT-4o-mini and let it extract products, services, features, pricing,
+ * category, and brand analysis all at once.
+ *
+ * This works on ANY website regardless of its HTML structure.
+ */
+async function extractAndAnalyze(data: EnhancedScrapedData): Promise<URLBrandAnalysis> {
+  const pageContent = data.pageContent || '';
 
-=== WEBSITE DATA ===
-Brand Name: ${data.brandName}
-Tagline: ${data.tagline || 'Not found'}
+  // If we have schema.org products, include them as hints
+  const schemaProductHints = data.products.length > 0
+    ? `\n=== PRODUCTS FOUND VIA SCHEMA.ORG (high confidence) ===\n${data.products.slice(0, 15).map((p, i) =>
+      `${i + 1}. ${p.name} - ${p.price ? `${p.currency || ''} ${p.price}` : 'No price'} ${p.image ? '[has image]' : ''} ${p.description ? `- ${p.description.slice(0, 100)}` : ''}`
+    ).join('\n')}`
+    : '';
+
+  const prompt = `You are a website analyst for an ad generation platform. Your job is to analyze a website and extract everything needed to create personalized marketing ads.
+
+=== WEBSITE INFO ===
 URL: ${data.url}
-Website Category: ${websiteCategory}
+Brand Name (from meta): ${data.brandName}
+Colors Detected: Primary=${data.primaryColor || 'unknown'}, Secondary=${data.secondaryColor || 'unknown'}, Accent=${data.accentColor || 'unknown'}
+Logo Found: ${data.logo ? 'Yes' : 'No'}
+${schemaProductHints}
 
-=== LANDING PAGE CONTENT (EXTRACTED FROM WEBSITE) ===
-Hero Headline: ${landingContent?.heroHeadline || 'Not found'}
-Hero Subheadline: ${landingContent?.heroSubheadline || 'Not found'}
+=== FULL PAGE CONTENT (extracted from website) ===
+${pageContent}
 
-CTA Buttons: ${landingContent?.ctaText?.join(', ') || 'Not found'}
+=== YOUR TASK ===
+Analyze the page content above and extract:
 
-Value Propositions Found:
-${landingContent?.valuePropositions?.slice(0, 5).map((v, i) => `${i + 1}. "${v}"`).join('\n') || 'None found'}
+1. **WEBSITE CATEGORY**: What type of website is this?
+   - ecommerce (sells physical products with cart/checkout)
+   - restaurant (food/delivery business)
+   - saas (software/platform with pricing plans)
+   - agency (service company - design, marketing, consulting, IT, etc.)
+   - portfolio (personal/freelancer showcase)
+   - landing-page (single product/service landing page)
+   - corporate (company website)
 
-Service Descriptions:
-${landingContent?.serviceDescriptions?.slice(0, 3).map((s, i) => `${i + 1}. ${s}`).join('\n') || 'None found'}
+2. **PRODUCTS/SERVICES**: What does this business sell or offer?
+   - For ecommerce/restaurant: Extract actual products with names, prices, descriptions
+   - For SaaS: The MAIN product/platform (NOT pricing tier names like "Starter", "Pro", "Enterprise")
+   - For agencies/services: Their service offerings
+   - For each product/service, suggest an ad angle
 
-Pricing Plans:
-${landingContent?.pricingInfo?.map(p => `- ${p.planName}: ${p.price || 'Custom'} (${p.features.length} features)`).join('\n') || 'None found'}
+3. **BRAND ANALYSIS**: Voice, audience, USPs, key messages
+   - USPs must come from ACTUAL content on the page
+   - Do NOT invent generic selling points
 
-Features/Benefits:
-${landingContent?.featuresList?.slice(0, 6).map(f => `- ${f.title}${f.description ? ': ' + f.description.substring(0, 80) : ''}`).join('\n') || 'None found'}
+4. **IMAGES**: Match product images from the [IMG] entries in the page content to products
+   - Image URLs MUST be actual image files (ending in .jpg, .jpeg, .png, .webp, .gif, or from CDN domains like wixstatic, cloudinary, shopify, etc.)
+   - NEVER use product page URLs as images (e.g. /products/some-product-p12345 is NOT an image)
+   - If no real image URL can be found for a product, set image to null
 
-Stats/Numbers:
-${landingContent?.statsNumbers?.map(s => `- ${s.value} ${s.label}`).join('\n') || 'None found'}
+CRITICAL RULES:
+- ONLY use information from the page content above. Do NOT hallucinate.
+- Pricing plan names (Starter, Basic, Pro, Premium, Enterprise, Free, Business, Growth, Team) are NOT products.
+  The actual product is what the website DOES (described in hero/headlines).
+- For SaaS sites: if you see pricing plans, the product is the PLATFORM itself.
+  Example: A website builder with Starter/Pro/Enterprise plans → product is "Website Builder"
+- Extract REAL prices where available (including currency symbols as shown on page)
+- Do not default any currency. Use whatever currency symbols appear on the page.
+- Match images to products by looking at [IMG] entries near product descriptions
+- Keep product count reasonable: 1-5 for services, up to 20 for ecommerce/restaurants
+- NOTE: Content may include SUBPAGES (marked with === SUBPAGE: url ===). Extract products from ALL pages.
+- BRAND NAME: Return the actual brand name (e.g. "KFC", "Nike", "Spotify"), NOT the page title or tagline.
+- COLOR VALIDATION: The detected colors (Primary=${data.primaryColor || 'unknown'}, Secondary=${data.secondaryColor || 'unknown'}, Accent=${data.accentColor || 'unknown'}) were auto-extracted from CSS and may be WRONG. Generic blues (#1A73E8, #3B82F6, etc.) are often just link colors, NOT brand colors. You MUST return the brand's ACTUAL colors. If the detected colors don't match the brand identity, CORRECT them.
 
-=== SCRAPED PRODUCTS (${data.products.length} total) ===
-${productsForAnalysis.map((p, i) => `${i + 1}. ${p.name} - ${p.price || 'No price'}`).join('\n') || 'No products found'}
-
-=== EXTRACTED CONTENT ===
-Headlines: ${data.headlines.slice(0, 5).join(' | ') || 'None'}
-Meta Description: ${data.metaDescription || 'None'}
-
-Colors: Primary: ${data.primaryColor || 'Unknown'}, Secondary: ${data.secondaryColor || 'Unknown'}
-
-=============================================
-🚨 CRITICAL RULES - DO NOT HALLUCINATE 🚨
-=============================================
-
-1. ONLY USE DATA FROM ABOVE - Do NOT invent or imagine services/products
-2. If you see pricing tiers (Starter, Pro, Enterprise) - these are NOT the products
-3. The ACTUAL service is what the hero headline/description says they do
-4. USPs must come from the extracted "Value Propositions" or "Stats/Numbers"
-
-WEBSITE CATEGORY HANDLING:
-- "${websiteCategory}" detected
-
-${websiteCategory === 'saas' || websiteCategory === 'landing-page' ? `
-FOR SAAS/LANDING PAGE:
-- Product = The main service/platform mentioned in hero headline
-- Look at hero headline to understand WHAT they actually build/offer
-- Example: Hero says "We build your website" → Product is "Website Builder"
-- keyFeatures should come from the extracted features list
-- USPs should come from the value propositions
-- DO NOT create generic business tools (CRM, Project Management) unless explicitly mentioned
-` : ''}
-
-${websiteCategory === 'agency' ? `
-FOR AGENCY:
-- Products = Their service offerings
-- Look at service descriptions for what they actually do
-- Example: "Web Design Agency" → Services: "Web Design", "UI/UX Design"
-- keyFeatures = their process or deliverables
-` : ''}
-
-${websiteCategory === 'restaurant' || websiteCategory === 'ecommerce' ? `
-FOR RESTAURANT/ECOMMERCE:
-- Products = Use the scraped products directly
-- These are actual items (food, merchandise)
-- DO NOT add keyFeatures to food items
-` : ''}
-
-RESPONSE FORMAT (JSON):
+Respond with this exact JSON structure:
 {
-  "brandName": "${data.brandName}",
-  "tagline": "from hero subheadline or create based on what they do",
-  "industry": "specific industry based on content",
-  "primaryColor": "${data.primaryColor || '#3B82F6'}",
-  "secondaryColor": "${data.secondaryColor || '#1E40AF'}",
-  "accentColor": "${data.accentColor || '#F59E0B'}",
+  "brandName": "from page or meta",
+  "tagline": "from hero/subheadline on page",
+  "industry": "specific industry",
+  "websiteCategory": "ecommerce|restaurant|saas|agency|portfolio|landing-page|corporate",
+  "primaryColor": "brand's ACTUAL primary color hex — detected ${data.primaryColor || 'unknown'}, correct if wrong",
+  "secondaryColor": "brand's ACTUAL secondary color hex — detected ${data.secondaryColor || 'unknown'}, correct if wrong",
+  "accentColor": "brand's ACTUAL accent/CTA color hex — detected ${data.accentColor || 'unknown'}, correct if wrong (generic blues are usually wrong)",
   "suggestedFontStyle": "modern|classic|playful|elegant|bold",
-  "brandVoice": "tone based on website content",
-  "targetAudience": "based on content clues",
-  "uniqueSellingPoints": ["MUST be from extracted value propositions/stats"],
-  "keyMessages": ["from headlines or descriptions"],
+  "brandVoice": "tone description",
+  "targetAudience": "who are their customers",
+  "uniqueSellingPoints": ["from actual page content only"],
+  "keyMessages": ["from headlines/descriptions"],
   "products": [
     {
-      "name": "ACTUAL service from hero/descriptions (NOT pricing tier names)",
-      "price": "from pricing info or null",
-      "description": "based on extracted descriptions",
-      "image": null,
-      "keyFeatures": ["from extracted features list"],
-      "suggestedAdAngle": "based on value propositions"
+      "name": "actual product/service name",
+      "price": "price with currency symbol or null",
+      "description": "from page content",
+      "image": "URL from [IMG] entries that matches this product, or null",
+      "keyFeatures": ["for services - key benefits/features"],
+      "suggestedAdAngle": "compelling angle for advertising this"
     }
   ],
   "productType": "physical|digital|service",
-  "serviceSubType": "food-restaurant|saas-platform|intangible",
-  "isEcommerce": ${data.isEcommerce},
+  "serviceSubType": "food-restaurant|saas-platform|intangible (only if service)",
+  "isEcommerce": true/false,
   "adRecommendations": {
     "bestPlatforms": ["Instagram", "Facebook"],
     "suggestedTones": ["professional"],
-    "visualStyle": "based on brand",
-    "callToAction": "from CTA buttons or create appropriate one"
+    "visualStyle": "style description matching brand",
+    "callToAction": "CTA text from page or appropriate one"
   }
-}
-
-REMEMBER: 
-- If products array is empty/has pricing tiers → create 1-2 products based on hero headline
-- USPs MUST come from "Value Propositions Found" or "Stats/Numbers" above
-- DO NOT HALLUCINATE generic services like "Business Management", "CRM System" unless explicitly found`;
+}`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       messages: [
-        { 
-          role: 'system', 
-          content: `You are a brand analyst. Your job is to extract and organize REAL data from websites.
+        {
+          role: 'system',
+          content: `You are an expert website analyst for an ad generation platform. You extract products, services, brand identity, and marketing insights from website content.
 
-🚨 STRICT RULES - YOU MUST FOLLOW:
-
-1. NEVER HALLUCINATE - Only use data provided in the prompt
-2. Products/services MUST come from:
-   - Hero headline (what do they actually do?)
-   - Service descriptions
-   - Actual scraped products (if they're real items, not pricing tiers)
-
-3. Pricing tier names are NOT products:
-   - "Starter", "Pro", "Enterprise", "Basic", "Premium" = IGNORE
-   - These are pricing plans, not what the business sells
-
-4. USPs MUST come from:
-   - "Value Propositions Found" section
-   - "Stats/Numbers" section
-   - DO NOT invent generic USPs
-
-5. For SaaS/agencies:
-   - The product is what the hero headline says they do
-   - "We build websites" → Product: "Website Builder"
-   - "Marketing that works" → Service: "Marketing Services"
-
-6. DO NOT create generic services like:
-   - "Business Management Tool" ❌
-   - "CRM System" ❌
-   - "Project Collaboration Platform" ❌
-   (Unless explicitly mentioned in the scraped content)
-
-Respond with valid JSON only.` 
+STRICT RULES:
+1. NEVER hallucinate - only use data from the provided page content
+2. Pricing tier names (Starter, Pro, Enterprise, etc.) are NOT products - they are pricing plans
+3. The actual product/service is what the hero headline describes
+4. USPs must come from real page content, not generic marketing phrases
+5. Match product images to products using the [IMG] entries
+6. Detect currency from actual symbols on the page - do NOT assume any default currency
+7. Respond with valid JSON only.`,
         },
-        { role: 'user', content: prompt }
+        { role: 'user', content: prompt },
       ],
-      temperature: 0.3, // Lower temperature for more factual responses
+      temperature: 0.3,
       response_format: { type: 'json_object' },
     });
 
     const content = response.choices[0]?.message?.content || '{}';
-    const analysis = JSON.parse(content) as URLBrandAnalysis;
-    
-    // IMPORTANT: Use ALL scraped products, not just what AI returned
-    // AI only analyzed a sample, so we need to use the full scraped product list
-    // Create a map of AI-enhanced products for quick lookup
-    const aiProductMap = new Map<string, typeof analysis.products[0]>();
-    (analysis.products || []).forEach(p => {
-      aiProductMap.set(p.name.toLowerCase(), p);
-    });
-    
-    // Pricing tier names to filter out - these are NOT products/services
-    const pricingTierPatterns = [
-      /^starter$/i, /^pro$/i, /^basic$/i, /^premium$/i, /^enterprise$/i,
-      /^free$/i, /^business$/i, /^plus$/i, /^professional$/i, /^team$/i,
-      /^individual$/i, /^personal$/i, /^agency$/i, /^growth$/i, /^scale$/i,
-      /^starter\s+(plan|package|tier)/i, /^pro\s+(plan|package|tier)/i,
-      /^basic\s+(plan|package|tier)/i, /^premium\s+(plan|package|tier)/i,
-    ];
-    
-    const isPricingTier = (name: string): boolean => {
-      return pricingTierPatterns.some(pattern => pattern.test(name.trim()));
-    };
-    
-    // Filter out pricing tiers from scraped products
-    const filteredScrapedProducts = data.products.filter(p => !isPricingTier(p.name));
-    
-    // If ALL scraped products were pricing tiers (SaaS site), use AI's service offerings instead
-    if (filteredScrapedProducts.length === 0 && analysis.products && analysis.products.length > 0) {
-      console.log(`[URL-Scrape] Detected SaaS/service site with pricing tiers only. Using AI-generated services.`);
-      // Use AI products but filter out any pricing tier names the AI might have kept
-      analysis.products = analysis.products.filter(p => !isPricingTier(p.name));
-    } else {
-      // Build final products list from filtered scraped products
-      analysis.products = filteredScrapedProducts.map((scrapedProduct) => {
-        // Try to find AI enhancement for this product
-        const aiProduct = aiProductMap.get(scrapedProduct.name.toLowerCase()) ||
-          Array.from(aiProductMap.values()).find(ap => 
-            ap.name.toLowerCase().includes(scrapedProduct.name.toLowerCase()) ||
-            scrapedProduct.name.toLowerCase().includes(ap.name.toLowerCase())
-          );
-        
-        const imageUrl = scrapedProduct.image || aiProduct?.image || null;
-        
-        console.log(`[URL-Scrape] Product "${scrapedProduct.name}" image: ${imageUrl ? imageUrl.substring(0, 60) + '...' : 'NONE'}`);
-        
-        return {
-          name: scrapedProduct.name,
-          price: scrapedProduct.price,
-          description: aiProduct?.description || scrapedProduct.description || `Premium ${scrapedProduct.name}`,
-          image: imageUrl,
-          keyFeatures: aiProduct?.keyFeatures || [],
-          suggestedAdAngle: aiProduct?.suggestedAdAngle || `Discover ${scrapedProduct.name}`,
-        };
-      });
-    }
-    
-    console.log(`[URL-Scrape] Final products count: ${analysis.products.length}`);
-    
-    // Ensure we have colors
-    if (!analysis.primaryColor && data.primaryColor) {
-      analysis.primaryColor = data.primaryColor;
-    }
-    if (!analysis.secondaryColor && data.secondaryColor) {
-      analysis.secondaryColor = data.secondaryColor;
-    }
-    
-    // CRITICAL: Override productType based on our website category detection
-    // AI often gets this wrong, so trust our category detection
-    if (data.websiteCategory === 'saas' || data.websiteCategory === 'agency') {
-      console.log(`[URL-Scrape] Overriding productType to 'service' based on websiteCategory: ${data.websiteCategory}`);
-      analysis.productType = 'service';
-      analysis.serviceSubType = data.websiteCategory === 'saas' ? 'saas-platform' : 'intangible';
-    } else if (data.websiteCategory === 'restaurant') {
-      analysis.productType = 'service';
-      analysis.serviceSubType = 'food-restaurant';
-    } else if (data.websiteCategory === 'landing-page' && data.products.length === 0) {
-      // Landing page with no products = service
-      analysis.productType = 'service';
-      analysis.serviceSubType = 'intangible';
-    }
-    
-    console.log(`[URL-Scrape] Final productType: ${analysis.productType}, serviceSubType: ${analysis.serviceSubType || 'none'}`);
-    
-    return analysis;
-    
-  } catch (error) {
-    console.error('[URL-Scrape] AI Analysis failed:', error);
-    
-    // Build better fallback using landing page content
-    const landingContent = data.landingPageContent;
-    
-    // Extract USPs from value propositions
-    const usps = landingContent?.valuePropositions?.slice(0, 3) || 
-      data.uniqueSellingPoints.slice(0, 3) ||
-      [];
-    
-    // Create product from hero headline if no products
-    let products = data.products.map(p => ({
-      name: p.name,
-      price: p.price,
-      description: p.description || `High quality ${p.name}`,
-      image: p.image,
-      keyFeatures: [] as string[],
-      suggestedAdAngle: `Highlight the quality and value of ${p.name}`,
-    }));
-    
-    // If no products, create from hero headline
-    if (products.length === 0 && landingContent?.heroHeadline) {
-      products = [{
-        name: data.brandName + ' Services',
-        price: null,
-        description: landingContent.heroSubheadline || landingContent.heroHeadline,
-        image: null,
-        keyFeatures: landingContent.featuresList?.slice(0, 4).map(f => f.title) || [],
-        suggestedAdAngle: landingContent.ctaText?.[0] || 'Get Started Today',
-      }];
-    }
-    
-    // Return a basic analysis from scraped data
-    return {
-      brandName: data.brandName,
-      tagline: landingContent?.heroSubheadline || data.tagline || `Quality ${data.estimatedProductType}s you can trust`,
-      industry: 'General',
-      primaryColor: data.primaryColor || '#3B82F6',
-      secondaryColor: data.secondaryColor || '#1E40AF',
-      accentColor: data.accentColor || '#F59E0B',
-      suggestedFontStyle: 'modern' as const,
-      brandVoice: 'Professional and trustworthy',
-      targetAudience: 'General consumers',
-      uniqueSellingPoints: usps,
-      keyMessages: data.headlines.slice(0, 2),
-      products,
-      productType: data.estimatedProductType,
-      isEcommerce: data.isEcommerce,
-      adRecommendations: {
+    const result = JSON.parse(content);
+
+    // Build the final analysis
+    const analysis: URLBrandAnalysis = {
+      brandName: result.brandName || data.brandName,
+      tagline: result.tagline || data.tagline || '',
+      industry: result.industry || 'General',
+      // AI colors take priority — it validates and corrects scraped colors
+      primaryColor: result.primaryColor || data.primaryColor || '#3B82F6',
+      secondaryColor: result.secondaryColor || data.secondaryColor || '#1E40AF',
+      accentColor: result.accentColor || data.accentColor || '#F59E0B',
+      suggestedFontStyle: result.suggestedFontStyle || 'modern',
+      brandVoice: result.brandVoice || 'Professional',
+      targetAudience: result.targetAudience || 'General consumers',
+      uniqueSellingPoints: result.uniqueSellingPoints || [],
+      keyMessages: result.keyMessages || [],
+      products: [],
+      productType: result.productType || 'physical',
+      serviceSubType: result.serviceSubType,
+      isEcommerce: result.isEcommerce || false,
+      adRecommendations: result.adRecommendations || {
         bestPlatforms: ['Instagram', 'Facebook'],
         suggestedTones: ['professional'],
         visualStyle: 'Clean and modern',
-        callToAction: landingContent?.ctaText?.[0] || 'Shop Now',
+        callToAction: 'Learn More',
       },
     };
-  }}
+
+    // Helper: validate that a URL actually points to an image, not a page
+    const isImageUrl = (url: string | null | undefined): string | null => {
+      if (!url || url === 'null') return null;
+      // Data URLs are fine
+      if (url.startsWith('data:image/')) return url;
+      // Must be http(s)
+      if (!url.startsWith('http')) return null;
+      // Check for image extensions or CDN/media paths
+      if (/\.(jpe?g|png|gif|webp|avif|bmp|tiff?|svg)(\?|$)/i.test(url)) return url;
+      if (/\/(image|img|photo|media|cdn|static|upload|asset)/i.test(url)) return url;
+      // Reject if it looks like a product page
+      if (/\/products?\//i.test(url) && !/\.(jpe?g|png|gif|webp)/i.test(url)) return null;
+      // Wix, Shopify, Cloudinary CDN patterns
+      if (/wixstatic|shopify|cloudinary|imgix|unsplash|pexels/i.test(url)) return url;
+      // Default: allow (might be a CDN URL without extension)
+      return url;
+    };
+
+    // Merge products: prefer schema.org products (they have verified structure),
+    // then add AI-extracted products that aren't duplicates
+    const finalProducts: URLBrandAnalysis['products'] = [];
+    const seenNames = new Set<string>();
+
+    // Schema.org products first (highest confidence)
+    for (const sp of data.products.slice(0, 15)) {
+      const aiProduct = (result.products || []).find((p: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
+        p.name?.toLowerCase() === sp.name.toLowerCase() ||
+        sp.name.toLowerCase().includes(p.name?.toLowerCase() || '') ||
+        (p.name?.toLowerCase() || '').includes(sp.name.toLowerCase())
+      );
+
+      seenNames.add(sp.name.toLowerCase());
+      finalProducts.push({
+        name: sp.name,
+        price: sp.price ? `${sp.currency ? sp.currency + ' ' : ''}${sp.price}` : null,
+        description: aiProduct?.description || sp.description || `${sp.name}`,
+        image: isImageUrl(sp.image) || isImageUrl(aiProduct?.image) || null,
+        keyFeatures: aiProduct?.keyFeatures || [],
+        suggestedAdAngle: aiProduct?.suggestedAdAngle || `Discover ${sp.name}`,
+      });
+    }
+
+    // AI-extracted products (for things not in schema.org)
+    for (const aiProd of (result.products || [])) {
+      if (!seenNames.has(aiProd.name?.toLowerCase())) {
+        seenNames.add(aiProd.name?.toLowerCase());
+        finalProducts.push({
+          name: aiProd.name,
+          price: aiProd.price || null,
+          description: aiProd.description || '',
+          image: isImageUrl(aiProd.image) || null,
+          keyFeatures: aiProd.keyFeatures || [],
+          suggestedAdAngle: aiProd.suggestedAdAngle || `Discover ${aiProd.name}`,
+        });
+      }
+    }
+
+    analysis.products = finalProducts;
+
+    // Update scrapedData fields based on AI analysis
+    if (result.websiteCategory) {
+      data.websiteCategory = result.websiteCategory;
+    }
+    data.isEcommerce = analysis.isEcommerce;
+    data.hasProducts = analysis.products.length > 0;
+    data.estimatedProductType = analysis.productType;
+
+    console.log(`[URL-Scrape] AI extracted: ${analysis.products.length} products, category: ${result.websiteCategory}, type: ${analysis.productType}`);
+
+    return analysis;
+
+  } catch (error) {
+    console.error('[URL-Scrape] AI extraction failed:', error);
+    return buildFallbackAnalysis(data);
+  }
+}
+
+/**
+ * Fallback analysis when AI fails - uses whatever meta data we have
+ */
+function buildFallbackAnalysis(data: EnhancedScrapedData): URLBrandAnalysis {
+  const products = data.products.map(p => ({
+    name: p.name,
+    price: p.price,
+    description: p.description || `${p.name}`,
+    image: p.image,
+    keyFeatures: [] as string[],
+    suggestedAdAngle: `Discover ${p.name}`,
+  }));
+
+  // If no products at all, create a generic one from brand name
+  if (products.length === 0) {
+    products.push({
+      name: `${data.brandName} Services`,
+      price: null,
+      description: data.metaDescription || data.tagline || `Products and services from ${data.brandName}`,
+      image: data.ogImage || null,
+      keyFeatures: [],
+      suggestedAdAngle: `Discover what ${data.brandName} has to offer`,
+    });
+  }
+
+  return {
+    brandName: data.brandName,
+    tagline: data.tagline || `Quality from ${data.brandName}`,
+    industry: 'General',
+    primaryColor: data.primaryColor || '#3B82F6',
+    secondaryColor: data.secondaryColor || '#1E40AF',
+    accentColor: data.accentColor || '#F59E0B',
+    suggestedFontStyle: 'modern',
+    brandVoice: 'Professional and trustworthy',
+    targetAudience: 'General consumers',
+    uniqueSellingPoints: data.headlines.slice(0, 3),
+    keyMessages: data.headlines.slice(0, 2),
+    products,
+    productType: 'physical',
+    isEcommerce: false,
+    adRecommendations: {
+      bestPlatforms: ['Instagram', 'Facebook'],
+      suggestedTones: ['professional'],
+      visualStyle: 'Clean and modern',
+      callToAction: 'Learn More',
+    },
+  };
+}

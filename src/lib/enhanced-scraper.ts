@@ -1,8 +1,9 @@
 import * as cheerio from 'cheerio';
-import type { CheerioAPI, Cheerio } from 'cheerio';
+import type { CheerioAPI } from 'cheerio';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type CheerioElement = Cheerio<any>;
+// ============================================================
+// INTERFACES
+// ============================================================
 
 export interface ScrapedProduct {
   name: string;
@@ -20,34 +21,34 @@ export interface ScrapedProduct {
 
 export interface EnhancedScrapedData {
   url: string;
-  
+
   // Brand Identity
   brandName: string;
   tagline: string | null;
   logo: string | null;
   favicon: string | null;
-  
+
   // Colors
   primaryColor: string | null;
   secondaryColor: string | null;
   accentColor: string | null;
   allColors: string[];
-  
-  // Products
+
+  // Products (populated from schema.org if available, otherwise empty - AI fills in)
   products: ScrapedProduct[];
   productCategories: string[];
-  
+
   // Content
   heroImage: string | null;
   bannerImages: string[];
   allImages: string[];
-  
+
   // Text Content
   headlines: string[];
   descriptions: string[];
   uniqueSellingPoints: string[];
-  
-  // Landing Page Content (NEW)
+
+  // Landing Page Content
   landingPageContent: {
     heroHeadline: string | null;
     heroSubheadline: string | null;
@@ -63,772 +64,175 @@ export interface EnhancedScrapedData {
     statsNumbers: Array<{ label: string; value: string }>;
     featuresList: Array<{ title: string; description: string | null }>;
   };
-  
-  // Business Info
+
+  // Contact
   contactEmail: string | null;
   phone: string | null;
   address: string | null;
   socialLinks: Record<string, string>;
-  
-  // Metadata
+
+  // Meta
   metaTitle: string;
   metaDescription: string;
   ogImage: string | null;
-  structuredData: unknown[];
-  
-  // Detection
+  structuredData: any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  // Detection (may be empty - AI will determine)
   isEcommerce: boolean;
   hasProducts: boolean;
   estimatedProductType: 'physical' | 'digital' | 'service';
-  websiteCategory: 'ecommerce' | 'restaurant' | 'saas' | 'agency' | 'portfolio' | 'landing-page' | 'corporate' | 'unknown';
+  websiteCategory: string;
+
+  // NEW: Structured page content for AI extraction
+  pageContent: string;
+
+  // Discovered subpage URLs for multi-page scraping
+  discoveredSubpages: string[];
 }
 
-/**
- * Enhanced website scraper using Cheerio (serverless compatible)
- */
+// ============================================================
+// MAIN SCRAPING FUNCTION
+// ============================================================
+
 export async function enhancedScrapeWebsite(url: string): Promise<EnhancedScrapedData> {
   const normalizedUrl = url.startsWith('http') ? url : `https://${url}`;
-  
-  // Fetch main page
-  const mainPageData = await fetchAndParse(normalizedUrl);
-  
-  // Try to find and scrape product/shop pages
-  const productPageUrls = findProductPageUrls(mainPageData.$, mainPageData.baseUrl);
-  
-  let allProducts = extractProducts(mainPageData.$, mainPageData.baseUrl);
-  
-  // Scrape additional product pages (limit to 3)
-  for (const productPageUrl of productPageUrls.slice(0, 3)) {
-    try {
-      const productPageData = await fetchAndParse(productPageUrl);
-      const moreProducts = extractProducts(productPageData.$, productPageData.baseUrl);
-      
-      moreProducts.forEach(product => {
-        if (!allProducts.some(p => p.name === product.name && p.price === product.price)) {
-          allProducts.push(product);
-        }
-      });
-    } catch (e) {
-      console.log(`[EnhancedScraper] Could not scrape ${productPageUrl}:`, e);
-    }
-  }
-  
-  // Extract brand identity
-  const brandName = extractBrandName(mainPageData.$, normalizedUrl);
-  const tagline = extractTagline(mainPageData.$);
-  const logo = extractLogo(mainPageData.$, mainPageData.baseUrl);
-  
-  // Extract colors
-  const colors = extractColorsWithPriority(mainPageData.$, mainPageData.html);
-  
-  // Extract images
-  const images = extractImagesWithContext(mainPageData.$, mainPageData.baseUrl);
-  
-  // Extract text content
-  const textContent = extractTextContent(mainPageData.$);
-  
-  // Extract landing page content (NEW - for service/SaaS sites)
-  const landingPageContent = extractLandingPageContent(mainPageData.$);
-  
-  // Extract contact info
-  const contactInfo = extractContactInfo(mainPageData.$, mainPageData.html);
-  
-  // Extract structured data
-  const structuredData = extractStructuredData(mainPageData.$);
-  
-  // Detect business type
-  const isEcommerce = detectEcommerce(mainPageData.$, allProducts);
-  const estimatedProductType = detectProductType(mainPageData.$, allProducts, textContent);
-  
-  // Detect website category (NEW)
-  const websiteCategory = detectWebsiteCategory(mainPageData.$, allProducts, textContent, landingPageContent);
-  
-  // Extract favicon
-  const favicon = extractFavicon(mainPageData.$, mainPageData.baseUrl);
-  
-  // Extract OG data
-  const ogImage = mainPageData.$('meta[property="og:image"]').attr('content');
-  
-  return {
-    url: normalizedUrl,
-    
-    brandName,
-    tagline,
-    logo,
-    favicon,
-    
-    primaryColor: colors.primary,
-    secondaryColor: colors.secondary,
-    accentColor: colors.accent,
-    allColors: colors.all,
-    
-    products: allProducts,
-    productCategories: [...new Set(allProducts.map(p => p.category).filter(Boolean))] as string[],
-    
-    heroImage: images.hero,
-    bannerImages: images.banners,
-    allImages: images.all,
-    
-    headlines: textContent.headlines,
-    descriptions: textContent.descriptions,
-    uniqueSellingPoints: textContent.usps,
-    
-    landingPageContent,
-    
-    contactEmail: contactInfo.email,
-    phone: contactInfo.phone,
-    address: contactInfo.address,
-    socialLinks: contactInfo.social,
-    
-    metaTitle: mainPageData.$('title').text().trim() || brandName,
-    metaDescription: mainPageData.$('meta[name="description"]').attr('content') || '',
-    ogImage: ogImage ? resolveUrl(ogImage, mainPageData.baseUrl) : null,
-    structuredData,
-    
-    isEcommerce,
-    hasProducts: allProducts.length > 0,
-    estimatedProductType,
-    websiteCategory,
-  };
-}
+  console.log('[Scraper] Fetching:', normalizedUrl);
 
-// ============ HELPER FUNCTIONS ============
-
-async function fetchAndParse(url: string) {
-  const response = await fetch(url, {
+  const response = await fetch(normalizedUrl, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.5',
     },
     redirect: 'follow',
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch: ${response.status}`);
+    throw new Error(`Failed to fetch website: ${response.status} ${response.statusText}`);
   }
 
   const html = await response.text();
   const $ = cheerio.load(html);
-  
+  const baseUrl = new URL(normalizedUrl);
+
+  // Extract basic meta
+  const brandName = extractBrandName($, baseUrl);
+  const tagline = $('meta[name="description"]').attr('content')?.trim() || null;
+  const logo = extractLogo($, baseUrl);
+  const favicon = resolveUrl($('link[rel="icon"]').attr('href') || $('link[rel="shortcut icon"]').attr('href'), baseUrl);
+  const colors = extractColors($);
+  const ogImage = resolveUrl($('meta[property="og:image"]').attr('content'), baseUrl);
+
+  // Extract schema.org structured data
+  const structuredData = extractSchemaOrg($);
+  const schemaProducts = extractProductsFromSchema(structuredData, baseUrl);
+
+  // Extract structured page content for AI
+  const pageContent = extractPageContent($, baseUrl);
+
+  // Extract basic headlines
+  const headlines: string[] = [];
+  $('h1, h2').each((_, el) => {
+    const text = $(el).text().trim();
+    if (text && text.length > 3 && text.length < 200 && headlines.length < 10) {
+      headlines.push(text);
+    }
+  });
+
+  // Extract all meaningful images
+  const allImages: string[] = [];
+  $('img').each((_, el) => {
+    const src = $(el).attr('src') || $(el).attr('data-src');
+    const resolved = resolveUrl(src, baseUrl);
+    if (resolved && !resolved.includes('pixel') && !resolved.includes('tracker') && !resolved.startsWith('data:')) {
+      allImages.push(resolved);
+    }
+  });
+
+  console.log('[Scraper] Extracted:', {
+    brandName,
+    hasLogo: !!logo,
+    colors: `${colors.primary || 'none'} / ${colors.secondary || 'none'}`,
+    schemaProducts: schemaProducts.length,
+    pageContentLength: pageContent.length,
+    headlines: headlines.length,
+  });
+
   return {
-    html,
-    $,
-    baseUrl: new URL(url),
+    url: normalizedUrl,
+    brandName,
+    tagline,
+    logo,
+    favicon,
+    primaryColor: colors.primary,
+    secondaryColor: colors.secondary,
+    accentColor: colors.accent,
+    allColors: colors.all,
+    products: schemaProducts, // Only schema.org products - AI extracts the rest
+    productCategories: [],
+    heroImage: ogImage || allImages[0] || null,
+    bannerImages: [],
+    allImages: allImages.slice(0, 30),
+    headlines,
+    descriptions: [],
+    uniqueSellingPoints: [],
+    landingPageContent: {
+      heroHeadline: headlines[0] || null,
+      heroSubheadline: null,
+      ctaText: [],
+      valuePropositions: [],
+      serviceDescriptions: [],
+      pricingInfo: [],
+      testimonials: [],
+      statsNumbers: [],
+      featuresList: [],
+    },
+    contactEmail: null,
+    phone: null,
+    address: null,
+    socialLinks: {},
+    metaTitle: $('title').text().trim(),
+    metaDescription: $('meta[name="description"]').attr('content')?.trim() || '',
+    ogImage,
+    structuredData,
+    isEcommerce: false,       // AI will determine
+    hasProducts: schemaProducts.length > 0,
+    estimatedProductType: 'physical', // AI will determine
+    websiteCategory: 'unknown',      // AI will determine
+    pageContent,
+    discoveredSubpages: discoverProductPages($, baseUrl),
   };
 }
 
-function resolveUrl(relativeUrl: string | null | undefined, baseUrl: URL): string | null {
-  if (!relativeUrl) return null;
-  try {
-    return new URL(relativeUrl, baseUrl).href;
-  } catch {
-    return null;
-  }
-}
+// ============================================================
+// BRAND NAME EXTRACTION
+// ============================================================
 
-function findProductPageUrls($: CheerioAPI, baseUrl: URL): string[] {
-  const urls: string[] = [];
-  const patterns = [
-    /shop/i, /products/i, /store/i, /catalog/i, /collection/i,
-    /all-products/i, /buy/i, /order/i
-  ];
-  
-  $('a[href]').each((_, el) => {
-    const href = $(el).attr('href');
-    if (!href) return;
-    
-    const text = $(el).text().toLowerCase();
-    const hrefLower = href.toLowerCase();
-    
-    if (patterns.some(p => p.test(hrefLower) || p.test(text))) {
-      const resolved = resolveUrl(href, baseUrl);
-      if (resolved && !urls.includes(resolved) && resolved.startsWith(baseUrl.origin)) {
-        urls.push(resolved);
-      }
-    }
-  });
-  
-  return urls;
-}
-
-function extractProducts($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
-  const products: ScrapedProduct[] = [];
-  const seenNames = new Set<string>();
-  
-  // Product container selectors
-  const productContainerSelectors = [
-    '[class*="product-card"]',
-    '[class*="product-item"]',
-    '[class*="product_card"]',
-    '[class*="product_item"]',
-    '[data-product]',
-    '[data-product-id]',
-    '[itemtype*="Product"]',
-    '.product-card',
-    '.product-grid-item',
-    '.product-item',
-    '.product',
-    '.wc-product',
-    '[data-hook="product-item"]',
-    '[class*="ProductItem"]',
-    '.ProductItem',
-    '.product-block',
-    '.card[class*="product"]',
-    '.item[class*="product"]',
-    '.grid-product',
-    '.ec-product',
-    '.ins-component__item',
-    '[id^="product-"]',
-    '.ins-component__item-wrap',
-  ];
-  
-  for (const selector of productContainerSelectors) {
-    try {
-      $(selector).each((_, el) => {
-        const product = extractProductFromElement($, $(el), baseUrl);
-        if (product && !seenNames.has(product.name.toLowerCase())) {
-          seenNames.add(product.name.toLowerCase());
-          products.push(product);
-        }
-      });
-    } catch {
-      // Selector might not be valid
-    }
-  }
-  
-  // Try Next.js __NEXT_DATA__ (common in modern sites like KFC, etc.)
-  if (products.length < 3) {
-    const nextDataProducts = extractProductsFromNextData($, baseUrl);
-    nextDataProducts.forEach(p => {
-      if (!seenNames.has(p.name.toLowerCase())) {
-        seenNames.add(p.name.toLowerCase());
-        products.push(p);
-      }
-    });
-  }
-  
-  // Try embedded JSON in script tags (Redux state, Apollo cache, etc.)
-  if (products.length < 3) {
-    const embeddedProducts = extractProductsFromEmbeddedJSON($, baseUrl);
-    embeddedProducts.forEach(p => {
-      if (!seenNames.has(p.name.toLowerCase())) {
-        seenNames.add(p.name.toLowerCase());
-        products.push(p);
-      }
-    });
-  }
-  
-  // Try Lightspeed/Ecwid embedded state
-  if (products.length < 3) {
-    const lightspeedProducts = extractProductsFromLightspeedState($, baseUrl);
-    lightspeedProducts.forEach(p => {
-      if (!seenNames.has(p.name.toLowerCase())) {
-        seenNames.add(p.name.toLowerCase());
-        products.push(p);
-      }
-    });
-  }
-  
-  // Try structured data
-  if (products.length === 0) {
-    const structuredProducts = extractProductsFromStructuredData($, baseUrl);
-    structuredProducts.forEach(p => {
-      if (!seenNames.has(p.name.toLowerCase())) {
-        seenNames.add(p.name.toLowerCase());
-        products.push(p);
-      }
-    });
-  }
-  
-  // Aggressive approach
-  if (products.length === 0) {
-    const aggressiveProducts = extractProductsAggressive($, baseUrl);
-    aggressiveProducts.forEach(p => {
-      if (!seenNames.has(p.name.toLowerCase())) {
-        seenNames.add(p.name.toLowerCase());
-        products.push(p);
-      }
-    });
-  }
-  
-  return products;
-}
-
-function extractProductFromElement($: CheerioAPI, el: CheerioElement, baseUrl: URL): ScrapedProduct | null {
-  const nameSelectors = [
-    '.ins-component__title-inner',
-    '.ins-component__title',
-    'h1', 'h2', 'h3', 'h4',
-    '[class*="title"]',
-    '[class*="name"]',
-    '[class*="product-title"]',
-    '[class*="product-name"]',
-    '[data-hook="product-item-name"]',
-    '.product-title',
-    '.product-name',
-    'a[class*="product"]',
-    'a[aria-label]',
-  ];
-  
-  let name: string | null = null;
-  for (const selector of nameSelectors) {
-    const nameEl = el.find(selector).first();
-    if (nameEl.length) {
-      const text = nameEl.text().trim();
-      if (text && text.length > 1 && text.length < 200) {
-        name = text;
-        break;
-      }
-      // Check aria-label
-      if (selector === 'a[aria-label]') {
-        const ariaLabel = nameEl.attr('aria-label');
-        if (ariaLabel && ariaLabel.length > 2 && ariaLabel.length < 200) {
-          name = ariaLabel;
-          break;
-        }
-      }
-    }
-  }
-  
-  if (!name || name.length < 2 || name.length > 200) return null;
-  
-  // Price extraction
-  const priceSelectors = [
-    '.ins-component__price-value',
-    '.ins-component__price-amount',
-    '[class*="price"]',
-    '[data-hook*="price"]',
-    '.price',
-    '.amount',
-    '[class*="cost"]',
-  ];
-  
-  let price: string | null = null;
-  let originalPrice: string | null = null;
-  
-  for (const selector of priceSelectors) {
-    el.find(selector).each((_, priceEl) => {
-      const text = $(priceEl).text().trim();
-      if (text && /[\d.,]+/.test(text)) {
-        const isOriginal = $(priceEl).closest('[class*="original"], [class*="was"], del, s').length > 0;
-        if (isOriginal) {
-          if (!originalPrice) originalPrice = text;
-        } else {
-          if (!price) price = text;
-        }
-      }
-    });
-    if (price) break;
-  }
-  
-  // Image extraction
-  const imgSelectors = [
-    '.ins-component__bg-image img',
-    '.ins-picture img',
-    'img[class*="product"]',
-    'img[data-product]',
-    'picture img',
-    'img',
-  ];
-  
-  let image: string | null = null;
-  const images: string[] = [];
-  
-  for (const selector of imgSelectors) {
-    const imgEl = el.find(selector).first();
-    if (imgEl.length) {
-      const src = imgEl.attr('src') || imgEl.attr('data-src') || imgEl.attr('data-lazy-src') || imgEl.attr('data-original');
-      const resolved = resolveUrl(src, baseUrl);
-      if (resolved && !resolved.includes('placeholder') && !resolved.includes('loading')) {
-        if (!image) image = resolved;
-        if (!images.includes(resolved)) images.push(resolved);
-      }
-    }
-  }
-  
-  // Description
-  let description: string | null = null;
-  const descSelectors = ['[class*="description"]', '[class*="excerpt"]', 'p'];
-  for (const selector of descSelectors) {
-    const descEl = el.find(selector).first();
-    const text = descEl.text().trim();
-    if (text && text.length > 20 && text !== name) {
-      description = text.slice(0, 300);
-      break;
-    }
-  }
-  
-  // Product URL
-  const linkEl = el.find('a[href]').first();
-  const productUrl = linkEl.length ? resolveUrl(linkEl.attr('href'), baseUrl) : null;
-  
-  // Currency
-  let currency: string | null = null;
-  const priceStr = price as string | null;
-  if (priceStr) {
-    if (priceStr.includes('Rs') || priceStr.includes('₨')) currency = 'PKR';
-    else if (priceStr.includes('$')) currency = 'USD';
-    else if (priceStr.includes('€')) currency = 'EUR';
-    else if (priceStr.includes('£')) currency = 'GBP';
-    else if (priceStr.includes('₹')) currency = 'INR';
-  }
-  
-  return {
-    name,
-    price,
-    originalPrice,
-    currency,
-    image,
-    images,
-    description,
-    category: null,
-    variants: [],
-    inStock: true,
-    url: productUrl,
-  };
-}
-
-function extractProductsFromStructuredData($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
-  const products: ScrapedProduct[] = [];
-  
-  $('script[type="application/ld+json"]').each((_, script) => {
-    try {
-      const data = JSON.parse($(script).html() || '');
-      const items = Array.isArray(data) ? data : [data];
-      
-      items.forEach(item => {
-        if (item['@type'] === 'Product' || item.type === 'Product') {
-          products.push({
-            name: item.name || '',
-            price: item.offers?.price?.toString() || item.price?.toString() || null,
-            originalPrice: null,
-            currency: item.offers?.priceCurrency || item.priceCurrency || null,
-            image: resolveUrl(item.image, baseUrl),
-            images: Array.isArray(item.image) ? item.image.map((i: string) => resolveUrl(i, baseUrl)).filter(Boolean) : [],
-            description: item.description || null,
-            category: item.category || null,
-            variants: [],
-            inStock: item.offers?.availability !== 'OutOfStock',
-            url: resolveUrl(item.url, baseUrl),
-          });
-        }
-        
-        if (item['@type'] === 'ItemList' && item.itemListElement) {
-          item.itemListElement.forEach((listItem: { item?: { name?: string; offers?: { price?: string | number; priceCurrency?: string }; image?: string; description?: string; url?: string } }) => {
-            if (listItem.item) {
-              products.push({
-                name: listItem.item.name || '',
-                price: listItem.item.offers?.price?.toString() || null,
-                originalPrice: null,
-                currency: listItem.item.offers?.priceCurrency || null,
-                image: resolveUrl(listItem.item.image, baseUrl),
-                images: [],
-                description: listItem.item.description || null,
-                category: null,
-                variants: [],
-                inStock: true,
-                url: resolveUrl(listItem.item.url, baseUrl),
-              });
-            }
-          });
-        }
-      });
-    } catch {
-      // Invalid JSON
-    }
-  });
-  
-  return products;
-}
-
-function extractProductsFromLightspeedState($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
-  const products: ScrapedProduct[] = [];
-  
-  $('script').each((_, script) => {
-    const content = $(script).html() || '';
-    
-    const stateMatch = content.match(/window\.initialState\s*=\s*"([\s\S]+?)";/);
-    if (stateMatch) {
-      try {
-        let jsonStr: string;
-        try {
-          jsonStr = JSON.parse('"' + stateMatch[1] + '"');
-        } catch {
-          jsonStr = stateMatch[1]
-            .replace(/\\"/g, '"')
-            .replace(/\\n/g, '\n')
-            .replace(/\\r/g, '\r')
-            .replace(/\\t/g, '\t')
-            .replace(/\\\\/g, '\\');
-        }
-        
-        const state = JSON.parse(jsonStr);
-        
-        if (state.tile?.tileList) {
-          for (const tile of state.tile.tileList) {
-            if (tile.type === 'STORE' && tile.externalContent?.storeData?.products) {
-              for (const p of tile.externalContent.storeData.products) {
-                if (p.name && p.enabled !== false) {
-                  products.push({
-                    name: p.name,
-                    price: p.formattedPrice || (p.price ? `${p.price}Rs` : null),
-                    originalPrice: null,
-                    currency: 'PKR',
-                    image: p.thumbnailImageUrl || p.imageUrl || null,
-                    images: [p.thumbnailImageUrl, p.imageUrl, p.fullImageUrl, p.alternativeProductImage?.imageUrl].filter(Boolean) as string[],
-                    description: p.description ? stripHtml(p.description) : null,
-                    category: null,
-                    variants: [],
-                    inStock: p.inStock !== false,
-                    url: p.url || null,
-                  });
-                }
-              }
-            }
-          }
-        }
-      } catch {
-        // Ignore errors
-      }
-    }
-  });
-  
-  return products;
-}
-
-function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
-}
-
-/**
- * Extract products from Next.js __NEXT_DATA__ script tag
- * Many modern sites (including KFC, food delivery apps) use Next.js
- */
-function extractProductsFromNextData($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
-  const products: ScrapedProduct[] = [];
-  
-  try {
-    const nextDataScript = $('#__NEXT_DATA__').html();
-    if (!nextDataScript) return products;
-    
-    const nextData = JSON.parse(nextDataScript);
-    
-    // Recursively search for product-like objects
-    const findProducts = (obj: unknown, depth = 0): void => {
-      if (depth > 10 || !obj) return;
-      
-      if (Array.isArray(obj)) {
-        obj.forEach(item => findProducts(item, depth + 1));
-        return;
-      }
-      
-      if (typeof obj !== 'object') return;
-      
-      const record = obj as Record<string, unknown>;
-      
-      // Check if this looks like a product
-      const hasName = typeof record.name === 'string' || typeof record.title === 'string' || typeof record.productName === 'string';
-      const hasPrice = record.price !== undefined || record.amount !== undefined || record.formattedPrice !== undefined;
-      const hasImage = typeof record.image === 'string' || typeof record.imageUrl === 'string' || typeof record.thumbnail === 'string' || typeof record.img === 'string';
-      
-      if (hasName && (hasPrice || hasImage)) {
-        const name = (record.name || record.title || record.productName) as string;
-        if (name && name.length > 2 && name.length < 200) {
-          const price = record.formattedPrice || record.price || record.amount;
-          const priceStr = price ? (typeof price === 'number' ? `Rs${price}` : String(price)) : null;
-          
-          const image = (record.image || record.imageUrl || record.thumbnail || record.img || record.photo || record.imageURL) as string | undefined;
-          const resolvedImage = image ? resolveUrl(image, baseUrl) : null;
-          
-          // Avoid duplicates
-          if (!products.some(p => p.name.toLowerCase() === name.toLowerCase())) {
-            products.push({
-              name,
-              price: priceStr,
-              originalPrice: null,
-              currency: priceStr?.includes('Rs') ? 'PKR' : null,
-              image: resolvedImage,
-              images: resolvedImage ? [resolvedImage] : [],
-              description: typeof record.description === 'string' ? record.description.slice(0, 300) : null,
-              category: typeof record.category === 'string' ? record.category : null,
-              variants: [],
-              inStock: true,
-              url: typeof record.url === 'string' ? resolveUrl(record.url, baseUrl) : null,
-            });
-          }
-        }
-      }
-      
-      // Recurse into object properties
-      Object.values(record).forEach(val => findProducts(val, depth + 1));
-    };
-    
-    findProducts(nextData);
-    console.log(`[EnhancedScraper] Found ${products.length} products from __NEXT_DATA__`);
-    
-  } catch (e) {
-    console.log('[EnhancedScraper] Error parsing __NEXT_DATA__:', e);
-  }
-  
-  return products;
-}
-
-/**
- * Extract products from embedded JSON in script tags
- * Searches for patterns like: window.__INITIAL_STATE__, __APOLLO_STATE__, etc.
- */
-function extractProductsFromEmbeddedJSON($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
-  const products: ScrapedProduct[] = [];
-  
-  const patterns = [
-    /window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});/,
-    /window\.__PRELOADED_STATE__\s*=\s*(\{[\s\S]*?\});/,
-    /window\.__APOLLO_STATE__\s*=\s*(\{[\s\S]*?\});/,
-    /window\.APP_DATA\s*=\s*(\{[\s\S]*?\});/,
-    /window\.pageData\s*=\s*(\{[\s\S]*?\});/,
-    /var\s+products\s*=\s*(\[[\s\S]*?\]);/,
-    /const\s+products\s*=\s*(\[[\s\S]*?\]);/,
-    /data-products\s*=\s*'(\[[\s\S]*?\])'/,
-    /"products"\s*:\s*(\[[\s\S]*?\])/,
-    /"items"\s*:\s*(\[[\s\S]*?\])/,
-    /"menuItems"\s*:\s*(\[[\s\S]*?\])/,
-  ];
-  
-  $('script').each((_, script) => {
-    const content = $(script).html() || '';
-    
-    for (const pattern of patterns) {
-      const match = content.match(pattern);
-      if (match && match[1]) {
-        try {
-          const data = JSON.parse(match[1]);
-          const items = Array.isArray(data) ? data : 
-            (data.products || data.items || data.menuItems || data.menu || []);
-          
-          if (Array.isArray(items)) {
-            for (const item of items) {
-              if (typeof item === 'object' && item !== null) {
-                const record = item as Record<string, unknown>;
-                const name = (record.name || record.title || record.productName) as string;
-                
-                if (name && name.length > 2 && name.length < 200) {
-                  const price = record.formattedPrice || record.price || record.amount;
-                  const priceStr = price ? (typeof price === 'number' ? `Rs${price}` : String(price)) : null;
-                  
-                  const image = (record.image || record.imageUrl || record.thumbnail || record.img || record.photo) as string | undefined;
-                  const resolvedImage = image ? resolveUrl(image, baseUrl) : null;
-                  
-                  if (!products.some(p => p.name.toLowerCase() === name.toLowerCase())) {
-                    products.push({
-                      name,
-                      price: priceStr,
-                      originalPrice: null,
-                      currency: priceStr?.includes('Rs') ? 'PKR' : null,
-                      image: resolvedImage,
-                      images: resolvedImage ? [resolvedImage] : [],
-                      description: typeof record.description === 'string' ? record.description.slice(0, 300) : null,
-                      category: typeof record.category === 'string' ? record.category : null,
-                      variants: [],
-                      inStock: true,
-                      url: typeof record.url === 'string' ? resolveUrl(record.url, baseUrl) : null,
-                    });
-                  }
-                }
-              }
-            }
-          }
-        } catch {
-          // JSON parse failed, continue
-        }
-      }
-    }
-  });
-  
-  if (products.length > 0) {
-    console.log(`[EnhancedScraper] Found ${products.length} products from embedded JSON`);
-  }
-  
-  return products;
-}
-
-function extractProductsAggressive($: CheerioAPI, baseUrl: URL): ScrapedProduct[] {
-  const products: ScrapedProduct[] = [];
-  const priceRegex = /(?:Rs\.?|₨|PKR|\$|€|£|₹)\s*[\d,]+(?:\.\d{2})?|[\d,]+(?:\.\d{2})?\s*(?:Rs\.?|₨|PKR|\$|€|£|₹)/i;
-  
-  $('*').each((_, el) => {
-    const text = $(el).text();
-    if (priceRegex.test(text)) {
-      const parent = $(el).parent().parent();
-      const heading = parent.find('h1, h2, h3, h4, h5, h6').first();
-      const name = heading.text().trim();
-      
-      if (name && name.length > 2 && name.length < 100) {
-        const priceMatch = text.match(priceRegex);
-        const img = parent.find('img').first();
-        
-        products.push({
-          name,
-          price: priceMatch?.[0] || null,
-          originalPrice: null,
-          currency: null,
-          image: resolveUrl(img.attr('src'), baseUrl),
-          images: [],
-          description: null,
-          category: null,
-          variants: [],
-          inStock: true,
-          url: null,
-        });
-      }
-    }
-  });
-  
-  return products.slice(0, 20);
-}
-
-function extractBrandName($: CheerioAPI, url: string): string {
-  const ogSiteName = $('meta[property="og:site_name"]').attr('content');
+function extractBrandName($: CheerioAPI, baseUrl: URL): string {
+  // Priority 1: og:site_name (most reliable)
+  const ogSiteName = $('meta[property="og:site_name"]').attr('content')?.trim();
   if (ogSiteName) return ogSiteName;
-  
+
+  // Priority 2: Title tag (first part before separator)
   const title = $('title').text().trim();
-  const titleParts = title.split(/[-|–—]/);
-  if (titleParts.length > 0 && titleParts[0].trim().length > 1) {
-    return titleParts[0].trim();
+  if (title) {
+    const parts = title.split(/[-|–—:]/);
+    const firstPart = parts[0].trim();
+    if (firstPart && firstPart.length < 40) return firstPart;
   }
-  
-  const logoAlt = $('img[class*="logo"], header img').first().attr('alt');
-  if (logoAlt && logoAlt.length < 50) return logoAlt;
-  
-  try {
-    const hostname = new URL(url).hostname.replace('www.', '');
-    const domainName = hostname.split('.')[0];
-    return domainName.charAt(0).toUpperCase() + domainName.slice(1);
-  } catch {
-    return 'Unknown Brand';
-  }
+
+  // Priority 3: Logo alt text
+  const logoAlt = $('img[class*="logo"], img[alt*="logo" i], .logo img, header a img').first().attr('alt')?.trim();
+  if (logoAlt && logoAlt.length < 40 && !/logo/i.test(logoAlt)) return logoAlt;
+
+  // Priority 4: Domain name
+  const domain = baseUrl.hostname.replace('www.', '').split('.')[0];
+  return domain.charAt(0).toUpperCase() + domain.slice(1);
 }
 
-function extractTagline($: CheerioAPI): string | null {
-  const selectors = [
-    '[class*="tagline"]',
-    '[class*="slogan"]',
-    '[class*="subtitle"]',
-    'header p',
-    '.hero p',
-    'meta[name="description"]',
-  ];
-  
-  for (const selector of selectors) {
-    const el = $(selector).first();
-    const text = el.text().trim() || el.attr('content');
-    if (text && text.length > 10 && text.length < 150) {
-      return text;
-    }
-  }
-  
-  return null;
-}
+// ============================================================
+// LOGO EXTRACTION (with SVG support)
+// ============================================================
 
 function extractLogo($: CheerioAPI, baseUrl: URL): string | null {
   const selectors = [
@@ -839,56 +243,69 @@ function extractLogo($: CheerioAPI, baseUrl: URL): string | null {
     '#logo img',
     'header img:first-of-type',
     '[class*="brand"] img',
+    'a[href="/"] img',
+    'header a img:first-child',
+    'nav img:first-of-type',
   ];
-  
+
   for (const selector of selectors) {
-    const img = $(selector).first();
-    const src = img.attr('src');
+    const el = $(selector).first();
+    const src = el.attr('src') || el.attr('data-src');
     if (src) {
       return resolveUrl(src, baseUrl);
     }
   }
-  
+
+  // Try SVG logos
+  const svgLogo = $('header svg, .logo svg, [class*="logo"] svg, a[href="/"] svg').first();
+  if (svgLogo.length) {
+    // Return the SVG as a data URI if it's small enough
+    const svgHtml = $.html(svgLogo);
+    if (svgHtml && svgHtml.length < 10000) {
+      return `data:image/svg+xml,${encodeURIComponent(svgHtml)}`;
+    }
+  }
+
   return null;
 }
 
-function extractFavicon($: CheerioAPI, baseUrl: URL): string | null {
-  const selectors = [
-    'link[rel="icon"]',
-    'link[rel="shortcut icon"]',
-    'link[rel="apple-touch-icon"]',
-  ];
-  
-  for (const selector of selectors) {
-    const href = $(selector).first().attr('href');
-    if (href) {
-      return resolveUrl(href, baseUrl);
-    }
-  }
-  
-  return resolveUrl('/favicon.ico', baseUrl);
-}
+// ============================================================
+// COLOR EXTRACTION (generic - CSS variables + stylesheets)
+// ============================================================
 
-interface ColorExtraction {
-  primary: string | null;
-  secondary: string | null;
-  accent: string | null;
-  all: string[];
-}
-
-function extractColorsWithPriority($: CheerioAPI, html: string): ColorExtraction {
-  const colorCounts: Record<string, number> = {};
+function extractColors($: CheerioAPI): { primary: string | null; secondary: string | null; accent: string | null; all: string[] } {
   const hexRegex = /#[0-9A-Fa-f]{6}(?![0-9A-Fa-f])/g;
-  
-  // CSS variables
+  const colorCounts: Record<string, number> = {};
   const cssVarColors: string[] = [];
-  const cssVarRegex = /--(?:primary|brand|main|accent|secondary)[^:]*:\s*(#[0-9A-Fa-f]{6})/gi;
-  let match;
-  while ((match = cssVarRegex.exec(html)) !== null) {
-    cssVarColors.push(match[1].toUpperCase());
-  }
-  
-  // Inline styles
+
+  // Neutral colors to exclude
+  const neutrals = new Set([
+    '#FFFFFF', '#000000', '#FFFFFE', '#FEFEFE',
+    '#333333', '#666666', '#999999', '#CCCCCC',
+    '#F5F5F5', '#EEEEEE', '#E5E5E5', '#DDDDDD',
+    '#F8F8F8', '#FAFAFA', '#F0F0F0', '#E0E0E0',
+    '#111111', '#222222', '#444444', '#555555',
+    '#777777', '#888888', '#AAAAAA', '#BBBBBB',
+  ]);
+
+  // 1. CSS variables (highest priority - these are intentional brand colors)
+  $('style').each((_, el) => {
+    const css = $(el).html() || '';
+    const cssVarRegex = /--(?:primary|brand|main|accent|secondary|theme|color-primary|color-accent|color-brand)[^:]*:\s*(#[0-9A-Fa-f]{6})/gi;
+    let match;
+    while ((match = cssVarRegex.exec(css)) !== null) {
+      cssVarColors.push(match[1].toUpperCase());
+    }
+
+    // All hex colors from stylesheets
+    const hexMatches = css.match(hexRegex);
+    hexMatches?.forEach(color => {
+      const upper = color.toUpperCase();
+      colorCounts[upper] = (colorCounts[upper] || 0) + 1;
+    });
+  });
+
+  // 2. Inline styles (higher weight - intentional styling)
   $('[style]').each((_, el) => {
     const style = $(el).attr('style') || '';
     const matches = style.match(hexRegex);
@@ -897,558 +314,575 @@ function extractColorsWithPriority($: CheerioAPI, html: string): ColorExtraction
       colorCounts[upper] = (colorCounts[upper] || 0) + 2;
     });
   });
-  
-  // Stylesheets
-  $('style').each((_, styleEl) => {
-    const css = $(styleEl).html() || '';
-    const matches = css.match(hexRegex);
-    matches?.forEach(color => {
-      const upper = color.toUpperCase();
-      colorCounts[upper] = (colorCounts[upper] || 0) + 1;
-    });
-  });
-  
-  const excludeColors = ['#FFFFFF', '#000000', '#FFFFF', '#333333', '#666666', '#999999', '#CCCCCC', '#F5F5F5', '#EEEEEE'];
-  
+
+  // 3. Meta theme-color
+  const themeColor = $('meta[name="theme-color"]').attr('content')?.trim();
+  if (themeColor && hexRegex.test(themeColor)) {
+    cssVarColors.unshift(themeColor.toUpperCase());
+  }
+
+  // Sort by frequency, exclude neutrals
   const sortedColors = Object.entries(colorCounts)
-    .filter(([color]) => !excludeColors.includes(color))
+    .filter(([color]) => !neutrals.has(color))
     .sort((a, b) => b[1] - a[1])
     .map(([color]) => color);
-  
-  const primaryFromVars = cssVarColors.find(c => !excludeColors.includes(c));
-  
+
+  const primaryFromVars = cssVarColors.find(c => !neutrals.has(c));
+
   return {
     primary: primaryFromVars || sortedColors[0] || null,
-    secondary: sortedColors[1] || null,
-    accent: sortedColors[2] || null,
-    all: [...new Set([...cssVarColors, ...sortedColors])].slice(0, 15),
+    secondary: sortedColors[primaryFromVars ? 0 : 1] || null,
+    accent: sortedColors[primaryFromVars ? 1 : 2] || null,
+    all: [...new Set([...cssVarColors, ...sortedColors])].slice(0, 10),
   };
 }
 
-interface ImageExtraction {
-  hero: string | null;
-  banners: string[];
-  all: string[];
-}
+// ============================================================
+// SCHEMA.ORG EXTRACTION (standards-based, most reliable)
+// ============================================================
 
-function extractImagesWithContext($: CheerioAPI, baseUrl: URL): ImageExtraction {
-  const all: string[] = [];
-  let hero: string | null = null;
-  const banners: string[] = [];
-  
-  const heroSelectors = ['.hero img', '[class*="hero"] img', '[class*="banner"] img', 'section:first-of-type img', 'header img'];
-  
-  for (const selector of heroSelectors) {
-    const img = $(selector).first();
-    if (img.length) {
-      hero = resolveUrl(img.attr('src'), baseUrl);
-      if (hero) break;
-    }
-  }
-  
-  $('[class*="banner"] img, [class*="slider"] img, [class*="carousel"] img').each((_, img) => {
-    const src = resolveUrl($(img).attr('src'), baseUrl);
-    if (src && !banners.includes(src)) {
-      banners.push(src);
-    }
-  });
-  
-  $('img').each((_, img) => {
-    const src = resolveUrl($(img).attr('src') || $(img).attr('data-src'), baseUrl);
-    if (src && !all.includes(src)) {
-      const width = parseInt($(img).attr('width') || '100');
-      const height = parseInt($(img).attr('height') || '100');
-      if (width >= 50 && height >= 50) {
-        all.push(src);
-      }
-    }
-  });
-  
-  return { hero, banners, all: all.slice(0, 30) };
-}
-
-interface TextContent {
-  headlines: string[];
-  descriptions: string[];
-  usps: string[];
-}
-
-function extractTextContent($: CheerioAPI): TextContent {
-  const headlines: string[] = [];
-  const descriptions: string[] = [];
-  const usps: string[] = [];
-  
-  $('h1, h2, h3').each((_, h) => {
-    const text = $(h).text().trim();
-    if (text && text.length > 3 && text.length < 200) {
-      headlines.push(text);
-    }
-  });
-  
-  $('p').each((_, p) => {
-    const text = $(p).text().trim();
-    if (text && text.length > 40 && text.length < 500) {
-      descriptions.push(text);
-    }
-  });
-  
-  const uspSelectors = ['[class*="feature"]', '[class*="benefit"]', '[class*="usp"]', '[class*="highlight"]', 'li'];
-  
-  uspSelectors.forEach(selector => {
-    $(selector).each((_, el) => {
-      const text = $(el).text().trim();
-      if (text && text.length > 10 && text.length < 100 && usps.length < 10) {
-        if (!usps.includes(text)) {
-          usps.push(text);
-        }
-      }
-    });
-  });
-  
-  return {
-    headlines: headlines.slice(0, 10),
-    descriptions: descriptions.slice(0, 10),
-    usps: usps.slice(0, 10),
-  };
-}
-
-interface ContactInfo {
-  email: string | null;
-  phone: string | null;
-  address: string | null;
-  social: Record<string, string>;
-}
-
-function extractContactInfo($: CheerioAPI, html: string): ContactInfo {
-  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-  const emails = html.match(emailRegex);
-  const email = emails?.[0] || null;
-  
-  const phoneRegex = /(?:\+92|0)?[\s.-]?(?:3\d{2}|[1-9]\d{2})[\s.-]?\d{7}|\+?[\d\s.-]{10,}/g;
-  const phones = html.match(phoneRegex);
-  const phone = phones?.[0]?.trim() || null;
-  
-  const social: Record<string, string> = {};
-  const socialPatterns: Record<string, RegExp> = {
-    facebook: /facebook\.com\/[^\s"'<>]+/i,
-    instagram: /instagram\.com\/[^\s"'<>]+/i,
-    twitter: /(?:twitter|x)\.com\/[^\s"'<>]+/i,
-    linkedin: /linkedin\.com\/[^\s"'<>]+/i,
-    youtube: /youtube\.com\/[^\s"'<>]+/i,
-    tiktok: /tiktok\.com\/[^\s"'<>]+/i,
-  };
-  
-  Object.entries(socialPatterns).forEach(([platform, regex]) => {
-    const match = html.match(regex);
-    if (match) {
-      social[platform] = `https://${match[0]}`;
-    }
-  });
-  
-  return { email, phone, address: null, social };
-}
-
-function extractStructuredData($: CheerioAPI): unknown[] {
-  const data: unknown[] = [];
-  
-  $('script[type="application/ld+json"]').each((_, script) => {
+function extractSchemaOrg($: CheerioAPI): any[] { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const schemas: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  $('script[type="application/ld+json"]').each((_, el) => {
     try {
-      data.push(JSON.parse($(script).html() || ''));
-    } catch {
-      // Invalid JSON
-    }
-  });
-  
-  return data;
-}
-
-function detectEcommerce($: CheerioAPI, products: ScrapedProduct[]): boolean {
-  const indicators = [
-    products.length > 0,
-    $('[class*="cart"]').length > 0,
-    $('[class*="checkout"]').length > 0,
-    $('[class*="add-to-cart"]').length > 0,
-    $('[class*="buy"]').length > 0,
-    $('[class*="price"]').length > 0,
-    $('[class*="shop"]').length > 0,
-  ];
-  
-  return indicators.filter(Boolean).length >= 2;
-}
-
-function detectProductType(
-  $: CheerioAPI, 
-  products: ScrapedProduct[], 
-  textContent: TextContent
-): 'physical' | 'digital' | 'service' {
-  const allText = [
-    ...textContent.headlines,
-    ...textContent.descriptions,
-    ...products.map(p => p.name + ' ' + (p.description || '')),
-  ].join(' ').toLowerCase();
-  
-  const physicalIndicators = [
-    /shipping/i, /delivery/i, /weight/i, /size/i, /dimensions/i,
-    /package/i, /box/i, /bottle/i, /jar/i, /pack/i,
-    /gram|kg|ml|liter|oz|lb/i,
-  ];
-  
-  const digitalIndicators = [
-    /download/i, /instant access/i, /pdf/i, /ebook/i, /course/i,
-    /subscription/i, /license/i, /software/i, /app/i,
-  ];
-  
-  const serviceIndicators = [
-    /consultation/i, /appointment/i, /session/i, /service/i,
-    /hour/i, /booking/i, /schedule/i, /hire/i,
-  ];
-  
-  const physicalScore = physicalIndicators.filter(r => r.test(allText)).length;
-  const digitalScore = digitalIndicators.filter(r => r.test(allText)).length;
-  const serviceScore = serviceIndicators.filter(r => r.test(allText)).length;
-  
-  if (physicalScore >= digitalScore && physicalScore >= serviceScore) {
-    return 'physical';
-  } else if (digitalScore >= serviceScore) {
-    return 'digital';
-  } else {
-    return 'service';
-  }
-}
-// ============ LANDING PAGE CONTENT EXTRACTION (NEW) ============
-
-interface LandingPageContent {
-  heroHeadline: string | null;
-  heroSubheadline: string | null;
-  ctaText: string[];
-  valuePropositions: string[];
-  serviceDescriptions: string[];
-  pricingInfo: Array<{
-    planName: string;
-    price: string | null;
-    features: string[];
-  }>;
-  testimonials: string[];
-  statsNumbers: Array<{ label: string; value: string }>;
-  featuresList: Array<{ title: string; description: string | null }>;
-}
-
-function extractLandingPageContent($: CheerioAPI): LandingPageContent {
-  const content: LandingPageContent = {
-    heroHeadline: null,
-    heroSubheadline: null,
-    ctaText: [],
-    valuePropositions: [],
-    serviceDescriptions: [],
-    pricingInfo: [],
-    testimonials: [],
-    statsNumbers: [],
-    featuresList: [],
-  };
-  
-  // 1. Extract Hero Section
-  const heroSelectors = [
-    'section:first-of-type', '.hero', '[class*="hero"]', '[class*="banner"]',
-    'header + section', 'header + div', '.jumbotron', '[class*="landing"]',
-    'main > section:first-child', 'main > div:first-child',
-  ];
-  
-  for (const selector of heroSelectors) {
-    const heroSection = $(selector).first();
-    if (heroSection.length) {
-      // Get main headline (usually h1)
-      const h1 = heroSection.find('h1').first();
-      if (h1.length) {
-        content.heroHeadline = h1.text().trim();
-      }
-      
-      // Get subheadline (usually h2 or p after h1)
-      const subheadline = heroSection.find('h2, h1 + p, h1 + div > p').first();
-      if (subheadline.length && !content.heroSubheadline) {
-        const text = subheadline.text().trim();
-        if (text.length > 10 && text.length < 300) {
-          content.heroSubheadline = text;
-        }
-      }
-      
-      if (content.heroHeadline) break;
-    }
-  }
-  
-  // Fallback: First H1 on page
-  if (!content.heroHeadline) {
-    const firstH1 = $('h1').first();
-    if (firstH1.length) {
-      content.heroHeadline = firstH1.text().trim();
-    }
-  }
-  
-  // 2. Extract CTAs (Call to Action buttons)
-  const ctaSelectors = [
-    'a[class*="cta"]', 'button[class*="cta"]',
-    'a[class*="btn-primary"]', 'button[class*="btn-primary"]',
-    'a[class*="button-primary"]', 'button[class*="button-primary"]',
-    '.hero a[class*="btn"]', '.hero button',
-    '[class*="hero"] a[class*="btn"]', '[class*="hero"] button',
-    'a.btn', 'button.btn',
-  ];
-  
-  const ctaTexts = new Set<string>();
-  ctaSelectors.forEach(selector => {
-    $(selector).each((_, el) => {
-      const text = $(el).text().trim();
-      if (text && text.length > 2 && text.length < 50) {
-        // Skip generic navigation
-        if (!/^(home|about|contact|login|sign in|menu|search)$/i.test(text)) {
-          ctaTexts.add(text);
-        }
-      }
-    });
-  });
-  content.ctaText = Array.from(ctaTexts).slice(0, 5);
-  
-  // 3. Extract Value Propositions (the actual selling points)
-  // Look for common patterns: "We [verb]", "Build your", "Get your", numbers + benefit
-  const valuePatterns = [
-    /we (?:build|create|make|design|develop|help|deliver|provide)[^.!]+/gi,
-    /(?:build|create|launch|get|start) your [^.!]+/gi,
-    /in (?:just )?(?:\d+|minutes?|seconds?|hours?|days?)[^.!]*/gi,
-    /(?:no|without) (?:coding|technical|experience)[^.!]*/gi,
-    /(?:\d+%|\d+x|\d+\+) [^.!]+/gi,
-    /(?:free|affordable|easy|fast|quick|simple)[^.!]{10,60}/gi,
-    /save (?:time|money|\$?\d+)[^.!]*/gi,
-    /(?:trusted by|used by|loved by) [^.!]+/gi,
-  ];
-  
-  const allTextContent = $('body').text();
-  valuePatterns.forEach(pattern => {
-    const matches = allTextContent.match(pattern);
-    if (matches) {
-      matches.forEach(match => {
-        const cleaned = match.trim().replace(/\s+/g, ' ');
-        if (cleaned.length > 15 && cleaned.length < 150) {
-          if (!content.valuePropositions.includes(cleaned)) {
-            content.valuePropositions.push(cleaned);
-          }
-        }
-      });
-    }
-  });
-  content.valuePropositions = content.valuePropositions.slice(0, 8);
-  
-  // 4. Extract Service Descriptions
-  // Look for sections that describe what the company does
-  const serviceSelectors = [
-    '[class*="service"]', '[class*="what-we-do"]', '[class*="offerings"]',
-    '[class*="solutions"]', '[class*="features"]', '[class*="about"]',
-    '#services', '#what-we-do', '#features',
-  ];
-  
-  serviceSelectors.forEach(selector => {
-    $(selector).each((_, section) => {
-      // Get the section heading
-      const heading = $(section).find('h2, h3').first().text().trim();
-      // Get the description
-      const desc = $(section).find('p').first().text().trim();
-      
-      if (desc && desc.length > 30 && desc.length < 400) {
-        const fullDesc = heading ? `${heading}: ${desc}` : desc;
-        if (!content.serviceDescriptions.some(s => s.includes(desc.substring(0, 30)))) {
-          content.serviceDescriptions.push(fullDesc);
-        }
-      }
-    });
-  });
-  content.serviceDescriptions = content.serviceDescriptions.slice(0, 5);
-  
-  // 5. Extract Pricing Info
-  const pricingSelectors = [
-    '[class*="pricing"]', '[class*="plans"]', '[class*="packages"]',
-    '#pricing', '#plans', 'section[id*="pricing"]',
-  ];
-  
-  pricingSelectors.forEach(selector => {
-    $(selector).find('[class*="card"], [class*="plan"], [class*="tier"], > div > div').each((_, card) => {
-      const planName = $(card).find('h3, h4, [class*="name"], [class*="title"]').first().text().trim();
-      
-      // Get price
-      let price: string | null = null;
-      const priceEl = $(card).find('[class*="price"], [class*="amount"]').first();
-      if (priceEl.length) {
-        price = priceEl.text().trim();
+      const data = JSON.parse($(el).html() || '');
+      if (Array.isArray(data)) {
+        schemas.push(...data);
       } else {
-        // Look for price pattern in card text
-        const cardText = $(card).text();
-        const priceMatch = cardText.match(/\$[\d,]+(?:\.\d{2})?(?:\/\w+)?|free|custom/i);
-        if (priceMatch) price = priceMatch[0];
+        schemas.push(data);
       }
-      
-      // Get features list
-      const features: string[] = [];
-      $(card).find('li, [class*="feature"]').each((_, li) => {
-        const text = $(li).text().trim();
-        if (text && text.length > 3 && text.length < 100) {
-          features.push(text);
-        }
-      });
-      
-      if (planName && (price || features.length > 0)) {
-        // Skip if it looks like a navigation item
-        if (planName.length > 1 && planName.length < 50) {
-          content.pricingInfo.push({
-            planName,
-            price,
-            features: features.slice(0, 10),
-          });
-        }
-      }
-    });
+    } catch {
+      // Invalid JSON, skip
+    }
   });
-  content.pricingInfo = content.pricingInfo.slice(0, 5);
-  
-  // 6. Extract Testimonials
-  const testimonialSelectors = [
-    '[class*="testimonial"]', '[class*="review"]', '[class*="quote"]',
-    'blockquote', '[class*="feedback"]', '[class*="client-say"]',
-  ];
-  
-  testimonialSelectors.forEach(selector => {
-    $(selector).each((_, el) => {
-      const text = $(el).find('p, [class*="text"], [class*="content"]').first().text().trim();
-      if (text && text.length > 20 && text.length < 500) {
-        if (!content.testimonials.some(t => t.includes(text.substring(0, 30)))) {
-          content.testimonials.push(text);
-        }
-      }
-    });
-  });
-  content.testimonials = content.testimonials.slice(0, 3);
-  
-  // 7. Extract Stats/Numbers (e.g., "500+ Websites", "10K+ Users")
-  const statsSelectors = [
-    '[class*="stat"]', '[class*="counter"]', '[class*="number"]',
-    '[class*="metric"]', '[class*="achievement"]',
-  ];
-  
-  const statPattern = /(\d+[kK]?\+?|\d+,\d+\+?|\d+%)\s*([a-zA-Z\s]+)/g;
-  
-  statsSelectors.forEach(selector => {
-    $(selector).each((_, el) => {
-      const text = $(el).text().trim();
-      const matches = text.matchAll(statPattern);
-      for (const match of matches) {
-        const value = match[1];
-        const label = match[2].trim();
-        if (label.length > 2 && label.length < 50) {
-          content.statsNumbers.push({ value, label });
-        }
-      }
-    });
-  });
-  content.statsNumbers = content.statsNumbers.slice(0, 6);
-  
-  // 8. Extract Features List
-  const featureSelectors = [
-    '[class*="feature"]', '[class*="benefit"]', '[class*="advantage"]',
-    '[class*="capability"]', '[class*="highlights"]',
-  ];
-  
-  featureSelectors.forEach(selector => {
-    $(selector).each((_, el) => {
-      const titleEl = $(el).find('h3, h4, [class*="title"], [class*="heading"]').first();
-      const descEl = $(el).find('p, [class*="desc"], [class*="text"]').first();
-      
-      const title = titleEl.text().trim();
-      const description = descEl.text().trim();
-      
-      if (title && title.length > 2 && title.length < 80) {
-        // Skip if already added
-        if (!content.featuresList.some(f => f.title === title)) {
-          content.featuresList.push({
-            title,
-            description: description.length > 10 && description.length < 300 ? description : null,
-          });
-        }
-      }
-    });
-  });
-  content.featuresList = content.featuresList.slice(0, 10);
-  
-  return content;
+  return schemas;
 }
 
-// ============ WEBSITE CATEGORY DETECTION (NEW) ============
+function extractProductsFromSchema(schemas: any[], baseUrl: URL): ScrapedProduct[] { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const products: ScrapedProduct[] = [];
+  const seen = new Set<string>();
 
-function detectWebsiteCategory(
-  $: CheerioAPI,
-  products: ScrapedProduct[],
-  textContent: TextContent,
-  landingContent: LandingPageContent
-): 'ecommerce' | 'restaurant' | 'saas' | 'agency' | 'portfolio' | 'landing-page' | 'corporate' | 'unknown' {
-  
-  const allText = [
-    ...textContent.headlines,
-    ...textContent.descriptions,
-    landingContent.heroHeadline || '',
-    landingContent.heroSubheadline || '',
-    ...landingContent.serviceDescriptions,
-  ].join(' ').toLowerCase();
-  
-  const hasCart = $('[class*="cart"], [class*="checkout"], [data-cart]').length > 0;
-  const hasAddToCart = $('[class*="add-to-cart"], button:contains("Add to Cart")').length > 0;
-  const hasPricing = landingContent.pricingInfo.length > 0;
-  const hasProducts = products.length > 0;
-  
-  // Restaurant indicators
-  const restaurantPatterns = [
-    /menu/i, /order online/i, /delivery/i, /dine-in/i, /takeaway/i,
-    /restaurant/i, /cafe/i, /food/i, /cuisine/i, /dish/i,
-    /reservation/i, /table for/i, /hungry/i,
-  ];
-  const isRestaurant = restaurantPatterns.filter(p => p.test(allText)).length >= 2;
-  
-  // SaaS indicators
-  const saasPatterns = [
-    /sign up/i, /get started/i, /free trial/i, /pricing/i, /plans/i,
-    /platform/i, /software/i, /app/i, /dashboard/i, /analytics/i,
-    /integration/i, /api/i, /automation/i, /saas/i, /cloud/i,
-    /per month|\/mo|\/month/i, /annual|yearly/i,
-  ];
-  const isSaas = saasPatterns.filter(p => p.test(allText)).length >= 3 || 
-    (hasPricing && !hasProducts);
-  
-  // Agency indicators  
-  const agencyPatterns = [
-    /agency/i, /we build/i, /we create/i, /we design/i, /we develop/i,
-    /our team/i, /our work/i, /portfolio/i, /case stud/i, /clients/i,
-    /contact us/i, /hire us/i, /get a quote/i, /let's talk/i,
-    /web development/i, /marketing/i, /branding/i, /consulting/i,
-  ];
-  const isAgency = agencyPatterns.filter(p => p.test(allText)).length >= 3;
-  
-  // Portfolio indicators
-  const portfolioPatterns = [
-    /my work/i, /my projects/i, /about me/i, /hire me/i,
-    /freelancer/i, /designer/i, /developer/i, /photographer/i,
-    /resume/i, /cv/i,
-  ];
-  const isPortfolio = portfolioPatterns.filter(p => p.test(allText)).length >= 2;
-  
-  // Ecommerce check
-  if (hasCart || hasAddToCart || (hasProducts && products.some(p => p.price))) {
-    if (isRestaurant) return 'restaurant';
-    return 'ecommerce';
+  function processItem(item: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (!item || typeof item !== 'object') return;
+
+    const type = item['@type'];
+    if (type === 'Product' || type === 'MenuItem' || type === 'FoodMenuItem' ||
+        (Array.isArray(type) && type.some((t: string) => ['Product', 'MenuItem'].includes(t)))) {
+      const name = item.name?.toString()?.trim();
+      if (!name || seen.has(name.toLowerCase())) return;
+      seen.add(name.toLowerCase());
+
+      // Extract price from offers
+      let price: string | null = null;
+      let currency: string | null = null;
+      const offers = item.offers || item.offer;
+      if (offers) {
+        const offer = Array.isArray(offers) ? offers[0] : offers;
+        if (offer?.price) {
+          price = offer.price.toString();
+          currency = offer.priceCurrency || null;
+        }
+      }
+
+      // Extract image
+      let image: string | null = null;
+      if (typeof item.image === 'string') {
+        image = item.image;
+      } else if (Array.isArray(item.image) && item.image.length > 0) {
+        image = typeof item.image[0] === 'string' ? item.image[0] : item.image[0]?.url || null;
+      } else if (item.image?.url) {
+        image = item.image.url;
+      }
+      if (image) {
+        image = resolveUrl(image, baseUrl);
+        // Validate it looks like an actual image URL, not a product page
+        if (image && !image.startsWith('data:') &&
+            !/\.(jpe?g|png|gif|webp|avif|bmp|tiff?|svg)(\?|$)/i.test(image) &&
+            !/\/(image|img|photo|media|cdn|static|upload|asset)/i.test(image)) {
+          // URL doesn't look like an image — skip it
+          image = null;
+        }
+      }
+
+      products.push({
+        name,
+        price,
+        originalPrice: null,
+        currency,
+        image,
+        images: image ? [image] : [],
+        description: item.description?.toString()?.trim()?.slice(0, 300) || null,
+        category: item.category?.toString() || null,
+        variants: [],
+        inStock: true,
+        url: item.url || null,
+      });
+    }
+
+    // Recurse into @graph and other nested structures
+    if (item['@graph'] && Array.isArray(item['@graph'])) {
+      item['@graph'].forEach(processItem);
+    }
+    if (item.itemListElement && Array.isArray(item.itemListElement)) {
+      item.itemListElement.forEach((li: any) => processItem(li.item || li)); // eslint-disable-line @typescript-eslint/no-explicit-any
+    }
+    if (item.hasMenu?.hasMenuSection) {
+      const sections = Array.isArray(item.hasMenu.hasMenuSection)
+        ? item.hasMenu.hasMenuSection
+        : [item.hasMenu.hasMenuSection];
+      sections.forEach((section: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+        const items = section.hasMenuItem || [];
+        (Array.isArray(items) ? items : [items]).forEach(processItem);
+      });
+    }
   }
-  
-  if (isRestaurant) return 'restaurant';
-  if (isSaas) return 'saas';
-  if (isAgency) return 'agency';
-  if (isPortfolio) return 'portfolio';
-  
-  // Landing page (has hero, CTA but not much else)
-  if (landingContent.heroHeadline && landingContent.ctaText.length > 0) {
-    return 'landing-page';
+
+  schemas.forEach(processItem);
+  return products.slice(0, 30);
+}
+
+// ============================================================
+// PAGE CONTENT EXTRACTION (structured text for AI)
+// ============================================================
+
+/**
+ * Extracts a structured, AI-friendly text representation of the page.
+ * This replaces all hardcoded CSS selectors - the AI reads this text
+ * and extracts products, services, pricing, features, etc.
+ */
+function extractPageContent($: CheerioAPI, baseUrl: URL): string {
+  const sections: string[] = [];
+
+  // 1. META INFORMATION
+  sections.push('=== PAGE META ===');
+  const title = $('title').text().trim();
+  const description = $('meta[name="description"]').attr('content')?.trim();
+  const ogTitle = $('meta[property="og:title"]').attr('content')?.trim();
+  const ogDesc = $('meta[property="og:description"]').attr('content')?.trim();
+  const ogSiteName = $('meta[property="og:site_name"]').attr('content')?.trim();
+  const keywords = $('meta[name="keywords"]').attr('content')?.trim();
+
+  if (title) sections.push(`Title: ${title}`);
+  if (description) sections.push(`Description: ${description}`);
+  if (ogSiteName) sections.push(`Site Name: ${ogSiteName}`);
+  if (ogTitle && ogTitle !== title) sections.push(`OG Title: ${ogTitle}`);
+  if (ogDesc && ogDesc !== description) sections.push(`OG Description: ${ogDesc}`);
+  if (keywords) sections.push(`Keywords: ${keywords}`);
+
+  // 2. STRUCTURED DATA (JSON-LD) - compact representation
+  const jsonLdScripts = $('script[type="application/ld+json"]');
+  if (jsonLdScripts.length > 0) {
+    sections.push('\n=== STRUCTURED DATA (Schema.org) ===');
+    jsonLdScripts.each((_, el) => {
+      try {
+        const data = JSON.parse($(el).html() || '');
+        const compact = JSON.stringify(data, null, 1);
+        sections.push(compact.slice(0, 3000));
+      } catch {
+        // Skip invalid JSON
+      }
+    });
   }
-  
-  return 'unknown';
+
+  // 3. PAGE BODY CONTENT - structured text hierarchy
+  sections.push('\n=== PAGE CONTENT ===');
+  const bodyContent = extractTextHierarchy($);
+  sections.push(bodyContent);
+
+  // 4. KEY IMAGES with context
+  sections.push('\n=== KEY IMAGES ===');
+  const images: string[] = [];
+  $('img').each((_, el) => {
+    const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-lazy-src') || '';
+    const alt = $(el).attr('alt') || '';
+    if (src && !src.startsWith('data:image/gif') && !src.includes('pixel') && !src.includes('tracker')) {
+      const fullSrc = resolveUrl(src, baseUrl) || src;
+      const entry = alt ? `[IMG] ${fullSrc} (${alt})` : `[IMG] ${fullSrc}`;
+      if (!images.some(i => i.includes(fullSrc))) {
+        images.push(entry);
+      }
+    }
+  });
+  sections.push(images.slice(0, 25).join('\n'));
+
+  // 5. NAVIGATION LINKS (helps AI understand site structure)
+  sections.push('\n=== NAVIGATION ===');
+  const navLinks: string[] = [];
+  $('nav a, header a, [role="navigation"] a').each((_, el) => {
+    const text = $(el).text().trim().replace(/\s+/g, ' ');
+    const href = $(el).attr('href') || '';
+    if (text && text.length > 1 && text.length < 50 && href && !href.startsWith('#')) {
+      const entry = `${text} → ${href}`;
+      if (!navLinks.includes(entry)) {
+        navLinks.push(entry);
+      }
+    }
+  });
+  sections.push(navLinks.slice(0, 20).join('\n'));
+
+  // Truncate to ~30KB to stay within AI context limits
+  let result = sections.join('\n');
+  if (result.length > 30000) {
+    result = result.slice(0, 30000) + '\n... [content truncated for length]';
+  }
+
+  return result;
+}
+
+/**
+ * Walk through the DOM and extract text in a structured hierarchy.
+ * This gives the AI a clean view of the page content without HTML noise.
+ */
+function extractTextHierarchy($: CheerioAPI): string {
+  const lines: string[] = [];
+  const skipTags = new Set(['script', 'style', 'noscript', 'svg', 'iframe', 'link', 'meta', 'head', 'br', 'hr']);
+  const seenText = new Set<string>();
+  let lineCount = 0;
+  const MAX_LINES = 500;
+
+  function processElement(el: any, depth: number = 0) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (lineCount >= MAX_LINES) return;
+
+    const tagName = el.tagName?.toLowerCase();
+    if (!tagName || skipTags.has(tagName)) return;
+
+    const $el = $(el);
+
+    // Headings
+    if (/^h[1-6]$/.test(tagName)) {
+      const text = $el.text().trim().replace(/\s+/g, ' ');
+      if (text && text.length > 2 && text.length < 200 && !seenText.has(text)) {
+        seenText.add(text);
+        const level = parseInt(tagName[1]);
+        const indent = '  '.repeat(Math.max(0, level - 1));
+        lines.push(`${indent}[${tagName.toUpperCase()}] ${text}`);
+        lineCount++;
+      }
+      return; // Don't recurse into headings
+    }
+
+    // Paragraphs
+    if (tagName === 'p') {
+      const text = $el.text().trim().replace(/\s+/g, ' ');
+      if (text && text.length > 15 && text.length < 600 && !seenText.has(text)) {
+        seenText.add(text);
+        lines.push(`[P] ${text}`);
+        lineCount++;
+      }
+      return;
+    }
+
+    // List items
+    if (tagName === 'li') {
+      const text = $el.clone().children('ul, ol').remove().end().text().trim().replace(/\s+/g, ' ');
+      if (text && text.length > 2 && text.length < 200 && !seenText.has(text)) {
+        seenText.add(text);
+        lines.push(`  - ${text}`);
+        lineCount++;
+      }
+      // Still recurse for nested lists
+      $el.children('ul, ol').children().each((_, child) => processElement(child, depth + 1));
+      return;
+    }
+
+    // Buttons and CTA links
+    if (tagName === 'button' || (tagName === 'a' && ($el.attr('class') || '').match(/btn|cta|button/i))) {
+      const text = $el.text().trim().replace(/\s+/g, ' ');
+      if (text && text.length > 1 && text.length < 50 && !seenText.has(text)) {
+        seenText.add(text);
+        lines.push(`[BUTTON] ${text}`);
+        lineCount++;
+      }
+      return;
+    }
+
+    // Images with alt text (inline context)
+    if (tagName === 'img') {
+      const alt = $el.attr('alt')?.trim();
+      const src = $el.attr('src') || $el.attr('data-src') || '';
+      if (alt && alt.length > 3 && !seenText.has(alt)) {
+        seenText.add(alt);
+        lines.push(`[IMG: ${alt}] ${src}`);
+        lineCount++;
+      }
+      return;
+    }
+
+    // Table rows (for pricing tables)
+    if (tagName === 'tr') {
+      const cells: string[] = [];
+      $el.children('td, th').each((_, cell) => {
+        const text = $(cell).text().trim().replace(/\s+/g, ' ');
+        if (text) cells.push(text);
+      });
+      if (cells.length > 0) {
+        const row = `[ROW] ${cells.join(' | ')}`;
+        if (!seenText.has(row)) {
+          seenText.add(row);
+          lines.push(row);
+          lineCount++;
+        }
+      }
+      return;
+    }
+
+    // Spans and small elements with price-like content (capture inline data)
+    if ((tagName === 'span' || tagName === 'strong' || tagName === 'b') && depth > 2) {
+      const text = $el.text().trim();
+      if (text && /[\$€£¥₹₨]|price|cost/i.test(text) && text.length < 50 && !seenText.has(text)) {
+        seenText.add(text);
+        lines.push(`[PRICE] ${text}`);
+        lineCount++;
+      }
+      return;
+    }
+
+    // Recurse into children for container elements
+    $el.children().each((_, child) => {
+      processElement(child, depth + 1);
+    });
+  }
+
+  $('body').children().each((_, child) => {
+    processElement(child, 0);
+  });
+
+  return lines.join('\n');
+}
+
+// ============================================================
+// SUBPAGE DISCOVERY & SCRAPING
+// ============================================================
+
+/**
+ * Discovers product-rich subpages from navigation links.
+ * Instead of blind crawling, we look at nav links and pick the ones
+ * most likely to contain products/menu items.
+ */
+const PRODUCT_PAGE_PATTERNS = [
+  // Restaurant/Food
+  /\/menu/i, /\/food/i, /\/dishes/i, /\/order/i, /\/delivery/i,
+  // Ecommerce
+  /\/products/i, /\/shop/i, /\/store/i, /\/catalog/i, /\/collections/i, /\/categories/i,
+  // Services
+  /\/services/i, /\/solutions/i, /\/offerings/i, /\/what-we-do/i,
+  // Pricing
+  /\/pricing/i, /\/plans/i, /\/packages/i,
+];
+
+const NAV_TEXT_PATTERNS = [
+  /^menu$/i, /^our menu$/i, /^food menu$/i, /^full menu$/i,
+  /^products$/i, /^shop$/i, /^store$/i, /^all products$/i, /^catalog$/i,
+  /^services$/i, /^our services$/i, /^what we do$/i, /^solutions$/i,
+  /^pricing$/i, /^plans$/i, /^packages$/i,
+  /^collections$/i, /^categories$/i,
+];
+
+export function discoverProductPages($: CheerioAPI, baseUrl: URL): string[] {
+  const candidates: Array<{ url: string; score: number }> = [];
+  const seen = new Set<string>();
+
+  // Check all links on the page (nav + body)
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href');
+    if (!href || href === '#' || href.startsWith('javascript:') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
+
+    const text = $(el).text().trim().replace(/\s+/g, ' ');
+    const resolved = resolveUrl(href, baseUrl);
+    if (!resolved) return;
+
+    // Must be same domain
+    try {
+      const linkUrl = new URL(resolved);
+      if (linkUrl.hostname !== baseUrl.hostname) return;
+      // Skip the landing page itself
+      if (linkUrl.pathname === '/' || linkUrl.pathname === baseUrl.pathname) return;
+      // Skip anchors, auth, legal pages
+      if (/\/(login|signup|register|sign-in|sign-up|privacy|terms|contact|about|blog|careers|faq)/i.test(linkUrl.pathname)) return;
+
+      const normalizedUrl = `${linkUrl.origin}${linkUrl.pathname}`;
+      if (seen.has(normalizedUrl)) return;
+      seen.add(normalizedUrl);
+
+      let score = 0;
+
+      // Score based on URL pattern
+      for (const pattern of PRODUCT_PAGE_PATTERNS) {
+        if (pattern.test(linkUrl.pathname)) {
+          score += 10;
+          break;
+        }
+      }
+
+      // Score based on link text
+      for (const pattern of NAV_TEXT_PATTERNS) {
+        if (pattern.test(text)) {
+          score += 15; // Link text is stronger signal
+          break;
+        }
+      }
+
+      // Bonus if it's in the main navigation
+      const isInNav = $(el).closest('nav, header, [role="navigation"]').length > 0;
+      if (isInNav && score > 0) score += 5;
+
+      // Prefer shorter paths (top-level pages like /menu vs /menu/item/123)
+      const pathDepth = linkUrl.pathname.split('/').filter(Boolean).length;
+      if (pathDepth <= 2 && score > 0) score += 3;
+
+      if (score > 0) {
+        candidates.push({ url: normalizedUrl, score });
+      }
+    } catch {
+      return;
+    }
+  });
+
+  // Sort by score, take top 3
+  return candidates
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map(c => c.url);
+}
+
+/**
+ * Discovers product pages from pre-extracted links (e.g. from Puppeteer's rendered page).
+ * Same scoring logic as discoverProductPages but takes raw link objects instead of Cheerio $.
+ */
+export function discoverProductPagesFromLinks(
+  links: Array<{ href: string; text: string; isInNav: boolean }>,
+  baseUrl: URL
+): string[] {
+  const candidates: Array<{ url: string; score: number }> = [];
+  const seen = new Set<string>();
+
+  for (const link of links) {
+    try {
+      const linkUrl = new URL(link.href);
+      if (linkUrl.hostname !== baseUrl.hostname) continue;
+      if (linkUrl.pathname === '/' || linkUrl.pathname === baseUrl.pathname) continue;
+      if (/\/(login|signup|register|sign-in|sign-up|privacy|terms|contact|about|blog|careers|faq)/i.test(linkUrl.pathname)) continue;
+
+      const normalizedUrl = `${linkUrl.origin}${linkUrl.pathname}`;
+      if (seen.has(normalizedUrl)) continue;
+      seen.add(normalizedUrl);
+
+      let score = 0;
+
+      for (const pattern of PRODUCT_PAGE_PATTERNS) {
+        if (pattern.test(linkUrl.pathname)) {
+          score += 10;
+          break;
+        }
+      }
+
+      for (const pattern of NAV_TEXT_PATTERNS) {
+        if (pattern.test(link.text)) {
+          score += 15;
+          break;
+        }
+      }
+
+      if (link.isInNav && score > 0) score += 5;
+
+      const pathDepth = linkUrl.pathname.split('/').filter(Boolean).length;
+      if (pathDepth <= 2 && score > 0) score += 3;
+
+      if (score > 0) {
+        candidates.push({ url: normalizedUrl, score });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return candidates
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map(c => c.url);
+}
+
+/**
+ * Scrapes a subpage for additional products/content.
+ * Lighter than the main scrape — only extracts products and page content.
+ */
+export async function scrapeSubpage(url: string, baseUrl: URL): Promise<{
+  products: ScrapedProduct[];
+  pageContent: string;
+}> {
+  try {
+    console.log('[Scraper] Fetching subpage:', url);
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15000), // 15s timeout per subpage
+    });
+
+    if (!response.ok) {
+      console.log(`[Scraper] Subpage failed: ${response.status}`);
+      return { products: [], pageContent: '' };
+    }
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    // Extract schema.org products from subpage
+    const structuredData = extractSchemaOrg($);
+    const products = extractProductsFromSchema(structuredData, baseUrl);
+
+    // Extract page content for AI (lighter version — skip meta, images, nav)
+    const lines: string[] = [];
+    lines.push(`\n=== SUBPAGE: ${url} ===`);
+
+    // Just get structured data and text content
+    if (structuredData.length > 0) {
+      lines.push('--- Schema.org Data ---');
+      try {
+        lines.push(JSON.stringify(structuredData, null, 1).slice(0, 3000));
+      } catch { /* skip */ }
+    }
+
+    lines.push('--- Page Text ---');
+    const bodyContent = extractTextHierarchy($);
+    lines.push(bodyContent);
+
+    // Also get images from subpage
+    lines.push('--- Subpage Images ---');
+    const images: string[] = [];
+    $('img').each((_, el) => {
+      const src = $(el).attr('src') || $(el).attr('data-src') || '';
+      const alt = $(el).attr('alt') || '';
+      if (src && !src.startsWith('data:image/gif') && !src.includes('pixel') && images.length < 15) {
+        const fullSrc = resolveUrl(src, baseUrl) || src;
+        images.push(alt ? `[IMG] ${fullSrc} (${alt})` : `[IMG] ${fullSrc}`);
+      }
+    });
+    lines.push(images.join('\n'));
+
+    const pageContent = lines.join('\n');
+    console.log(`[Scraper] Subpage extracted: ${products.length} schema products, ${pageContent.length} chars content`);
+
+    return { products, pageContent };
+  } catch (error) {
+    console.log(`[Scraper] Subpage error for ${url}:`, error instanceof Error ? error.message : error);
+    return { products: [], pageContent: '' };
+  }
+}
+
+// ============================================================
+// UTILITY
+// ============================================================
+
+function resolveUrl(src: string | null | undefined, baseUrl: URL): string | null {
+  if (!src) return null;
+  try {
+    if (src.startsWith('data:')) return src;
+    return new URL(src, baseUrl).href;
+  } catch {
+    return null;
+  }
 }

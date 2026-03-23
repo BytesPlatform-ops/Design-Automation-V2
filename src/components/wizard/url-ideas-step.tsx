@@ -74,6 +74,15 @@ export function URLIdeasStep({ ideas, isLoading, onSubmit, onBack, brandColors }
       return;
     }
 
+    // Auto-detect visual style from concept text
+    const conceptLower = customIdea.visualConcept.toLowerCase();
+    const detectedStyle: URLAdIdea['visualStyle'] =
+      /3d|three.?dimensional|glossy render|isometric|volumetric/i.test(conceptLower) ? '3D' :
+      /isometric/i.test(conceptLower) ? 'isometric' :
+      /cinematic|film|movie|dramatic light/i.test(conceptLower) ? 'cinematic' :
+      /flat|illustration|graphic|vector/i.test(conceptLower) ? 'flat' :
+      'photorealistic';
+
     const newIdea: URLAdIdea = {
       id: `custom-idea-${Date.now()}`,
       productName: customIdea.productName,
@@ -85,6 +94,7 @@ export function URLIdeasStep({ ideas, isLoading, onSubmit, onBack, brandColors }
       callToAction: customIdea.callToAction || 'Shop Now',
       adAngle: customIdea.adAngle || 'Custom',
       visualConcept: customIdea.visualConcept,
+      visualStyle: detectedStyle,
       colorScheme: brandColors || {
         primary: '#000000',
         secondary: '#333333',
@@ -351,11 +361,22 @@ export function URLIdeasStep({ ideas, isLoading, onSubmit, onBack, brandColors }
                         {idea.subheadline}
                       </p>
                       
-                      {/* Ad angle badge */}
-                      <div className="flex items-center gap-2 mb-2">
+                      {/* Ad angle + visual style badges */}
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-secondary text-secondary-foreground">
                           {idea.adAngle}
                         </span>
+                        {idea.visualStyle && (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                            idea.visualStyle === '3D' || idea.visualStyle === 'isometric'
+                              ? 'bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 text-violet-700 dark:text-violet-300 border border-violet-300 dark:border-violet-700'
+                              : idea.visualStyle === 'cinematic'
+                              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                              : 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-700'
+                          }`}>
+                            {idea.visualStyle === '3D' ? '🧊 3D' : idea.visualStyle === 'isometric' ? '🔷 Isometric' : idea.visualStyle === 'cinematic' ? '🎬 Cinematic' : idea.visualStyle === 'flat' ? '🎨 Flat' : '📸 Photo'}
+                          </span>
+                        )}
                       </div>
                       
                       {/* Visual concept preview */}
